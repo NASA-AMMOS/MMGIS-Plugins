@@ -4,6 +4,7 @@
   "version": "5.2.0-20260617",
   "type": "tool",
   "tier": "experimental",
+  "engines": { "mmgis": ">=5.2.0" },
   "overridable": true,
   "defaultIcon": "chart-line",
   "description": "A graphing and analysis tool for data visualization and statistical analysis.",
@@ -19,7 +20,7 @@
   "name": "Analysis",
   "toolbarPriority": 4,
   "paths": {
-    "AnalysisTool": "../plugins/official/tools/Analysis/AnalysisTool"
+    "AnalysisTool": "../plugins/MMGIS-Plugins/tools/Analysis/AnalysisTool"
   },
   "expandable": true,
   "config": {

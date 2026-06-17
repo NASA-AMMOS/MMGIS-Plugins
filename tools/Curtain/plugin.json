@@ -4,6 +4,7 @@
   "version": "5.2.0-20260617",
   "type": "tool",
   "tier": "official",
+  "engines": { "mmgis": ">=5.2.0" },
   "overridable": true,
   "defaultIcon": "waves",
   "description": "Curtain views of Ground Penetrating Radar data.",
@@ -16,7 +17,7 @@
   "hasVars": true,
   "name": "Curtain",
   "paths": {
-    "CurtainTool": "../plugins/official/tools/Curtain/CurtainTool"
+    "CurtainTool": "../plugins/MMGIS-Plugins/tools/Curtain/CurtainTool"
   },
   "config": {
     "rows": [

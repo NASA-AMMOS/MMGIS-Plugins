@@ -4,6 +4,7 @@
   "version": "5.2.0-20260617",
   "type": "tool",
   "tier": "official",
+  "engines": { "mmgis": ">=5.2.0" },
   "overridable": true,
   "defaultIcon": "flask",
   "description": "Display chemistry percentages via graphs of a clicked point.",
@@ -11,7 +12,7 @@
   "hasVars": false,
   "name": "Chemistry",
   "paths": {
-    "ChemistryTool": "../plugins/official/tools/Chemistry/ChemistryTool"
+    "ChemistryTool": "../plugins/MMGIS-Plugins/tools/Chemistry/ChemistryTool"
   },
   "author": "NASA-AMMOS/MMGIS-Plugins",
   "license": "Apache-2.0",

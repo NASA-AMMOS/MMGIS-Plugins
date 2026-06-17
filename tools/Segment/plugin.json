@@ -4,6 +4,7 @@
   "version": "5.2.0-20260617",
   "type": "tool",
   "tier": "experimental",
+  "engines": { "mmgis": ">=5.2.0" },
   "overridable": true,
   "defaultIcon": "tangram",
   "description": "Segment map features using SAM3 AI model with text prompts.",
@@ -18,7 +19,7 @@
   "hasVars": true,
   "name": "Segment",
   "paths": {
-    "SegmentTool": "../plugins/official/tools/Segment/SegmentTool"
+    "SegmentTool": "../plugins/MMGIS-Plugins/tools/Segment/SegmentTool"
   },
   "config": {
     "rows": [
