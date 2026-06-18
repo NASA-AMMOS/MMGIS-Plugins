@@ -44,7 +44,7 @@
   "name": "Isochrone",
   "toolbarPriority": 10,
   "paths": {
-    "IsochroneTool": "../plugins/MMGIS-Plugins/tools/Isochrone/IsochroneTool"
+    "IsochroneTool": "./IsochroneTool"
   },
   "config": {
     "rows": [

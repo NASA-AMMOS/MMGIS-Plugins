@@ -20,7 +20,7 @@
   "name": "Analysis",
   "toolbarPriority": 4,
   "paths": {
-    "AnalysisTool": "../plugins/MMGIS-Plugins/tools/Analysis/AnalysisTool"
+    "AnalysisTool": "./AnalysisTool"
   },
   "expandable": true,
   "config": {

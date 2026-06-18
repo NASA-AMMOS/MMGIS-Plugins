@@ -19,7 +19,7 @@
   "hasVars": true,
   "name": "Segment",
   "paths": {
-    "SegmentTool": "../plugins/MMGIS-Plugins/tools/Segment/SegmentTool"
+    "SegmentTool": "./SegmentTool"
   },
   "config": {
     "rows": [

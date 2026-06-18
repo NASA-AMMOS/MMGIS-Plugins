@@ -12,7 +12,7 @@
   "hasVars": false,
   "name": "Chemistry",
   "paths": {
-    "ChemistryTool": "../plugins/MMGIS-Plugins/tools/Chemistry/ChemistryTool"
+    "ChemistryTool": "./ChemistryTool"
   },
   "author": "NASA-AMMOS/MMGIS-Plugins",
   "license": "Apache-2.0",
