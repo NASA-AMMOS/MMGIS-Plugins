@@ -1,0 +1,57 @@
+{
+    "uuid": "da3a1876-325e-4a52-a0e5-8a5c8028e03a",
+    "id": "official-workflows",
+    "version": "5.2.18-20260722",
+    "type": "tool",
+    "tier": "experimental",
+    "overridable": true,
+    "defaultIcon": "cog-sync",
+    "description": "Submit jobs to an external workflows API and add completed runs\u2019 outputs as map layers.",
+    "descriptionFull": {
+        "title": "Lists workflow endpoints (hardcoded in WorkflowsTool.js), generates a form per endpoint, and submits jobs to the workflows API configured via the API Base URL tool variable. Users authenticate to that API with OAuth session cookies via an inline connect link. Completed runs\u2019 tile STAC items can be added as mission layers, grouped under a \"Workflow Outputs\" header, with TiTiler rescale options seeded from item raster statistics.",
+        "example": {
+            "pollIntervalMs": "(int) how often to poll job status [default 2000]"
+        }
+    },
+    "hasVars": true,
+    "name": "Workflows",
+    "toolbarPriority": 50,
+    "paths": {
+        "WorkflowsTool": "./WorkflowsTool"
+    },
+    "config": {
+        "rows": [
+            {
+                "components": [
+                    {
+                        "field": "variables.baseUrl",
+                        "name": "API Base URL",
+                        "description": "Origin of the workflows API. Required for the tool to function.",
+                        "type": "text",
+                        "width": 12,
+                        "placeholder": "https://workflows-api.example.com"
+                    }
+                ]
+            },
+            {
+                "components": [
+                    {
+                        "field": "variables.pollIntervalMs",
+                        "name": "Poll Interval (ms)",
+                        "description": "How often the tool polls workflow job status.",
+                        "type": "number",
+                        "min": 500,
+                        "step": 500,
+                        "width": 4
+                    }
+                ]
+            }
+        ]
+    },
+    "engines": {
+        "mmgis": ">=5.2.0"
+    },
+    "author": "NASA-AMMOS/MMGIS-Plugins",
+    "license": "Apache-2.0",
+    "repository": "https://github.com/NASA-AMMOS/MMGIS-Plugins"
+}
