@@ -11,14 +11,13 @@
   "descriptionFull": {
     "title": "Chat with the MMGIS Agent to list layers, toggle visibility, adjust opacity, zoom to features, run analysis, and more — all via natural language.",
     "example": {
-      "separatedTool": "(bool) If true, this tool lives outside the left-hand toolbar and is independently accessible [default true]",
-      "variables.justification": "(string) Panel alignment — 'left' or 'right' [default 'left']"
+      "variables.displayOnStart": "(bool) If true, the Copilot panel opens automatically on page load [default false]"
     }
   },
   "hasVars": true,
   "name": "AgentChat",
   "toolbarPriority": 3,
-  "separatedTool": true,
+  "separatedTool": "custom",
   "paths": {
     "AgentChatTool": "./AgentChatTool"
   },
@@ -28,20 +27,12 @@
       {
         "components": [
           {
-            "field": "separatedTool",
-            "name": "Separated Tool",
-            "description": "If true, this tool will live outside the left-hand toolbar and be independently accessible.",
+            "field": "variables.displayOnStart",
+            "name": "Display on Start",
+            "description": "Whether the Copilot panel should automatically open on page load.",
             "type": "checkbox",
             "width": 3,
-            "defaultChecked": true
-          },
-          {
-            "field": "variables.justification",
-            "name": "Justification",
-            "description": "The panel will display on the right side of the screen if set to right, otherwise defaults to the left side.",
-            "type": "dropdown",
-            "width": 2,
-            "options": ["left", "right"]
+            "defaultChecked": false
           },
           {
             "field": "variables.agentApiUrl",

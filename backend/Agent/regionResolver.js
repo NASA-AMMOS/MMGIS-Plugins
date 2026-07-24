@@ -1,4 +1,3 @@
-const fetch = require("node-fetch");
 const TerraformerWKT = require("@terraformer/wkt");
 const { normalizeName, scoreCandidate } = require("./utils/text");
 
@@ -134,7 +133,7 @@ function geometryCoordinateCount(geometry) {
 
 async function fetchJson(url, options = {}) {
   const res = await fetch(url, {
-    timeout: options.timeout || 10000,
+    signal: AbortSignal.timeout(options.timeout || 10000),
     headers: options.headers || {},
   });
   if (!res.ok) {
@@ -213,7 +212,7 @@ function parseWktGeometry(wkt) {
 async function fetchMarinePolygon(mrgid) {
   if (!mrgid) return null;
   const url = `${MARINE_REGIONS_POLYGON}?mrgid=${encodeURIComponent(mrgid)}`;
-  const res = await fetch(url, { timeout: 15000 });
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) return null;
   const text = await res.text();
   if (!text) return null;

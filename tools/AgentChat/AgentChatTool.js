@@ -144,9 +144,16 @@ const AgentChatTool = {
     width: 'full',
     MMGISInterface: null,
     made: false,
+    displayOnStart: false,
     initialize: function () {
+        const vars = L_.getToolVars('agentchat')
+        this.displayOnStart = vars != null && vars.displayOnStart === true
         hideToolbarButtons()
         ensureTopbarLauncher()
+        // As a "custom" separated tool, AgentChat manages its own launcher and
+        // floating panel, so core's displayOnStart auto-open loop doesn't apply.
+        // Open it here when the admin has enabled Display on Start.
+        if (this.displayOnStart) openFromTopbar()
     },
     make() {
         this.MMGISInterface = new interfaceWithMMGIS()

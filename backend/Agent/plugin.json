@@ -53,8 +53,7 @@
       "@azure/core-auth": "^1.7.2",
       "@azure/identity": "^4.4.0",
       "@terraformer/wkt": "^2.2.0",
-      "ajv": "^8.17.1",
-      "node-fetch": "^2.7.0"
+      "ajv": "^8.17.1"
     },
     "python": {
       "pip": ["rasterio>=1.3"]
