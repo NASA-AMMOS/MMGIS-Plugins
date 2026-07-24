@@ -146,14 +146,12 @@ const AgentChatTool = {
     made: false,
     displayOnStart: false,
     initialize: function () {
+        // Read by core's ToolController_ displayOnStart loop, which auto-opens
+        // separated tools (including "custom") when this is true.
         const vars = L_.getToolVars('agentchat')
         this.displayOnStart = vars != null && vars.displayOnStart === true
         hideToolbarButtons()
         ensureTopbarLauncher()
-        // As a "custom" separated tool, AgentChat manages its own launcher and
-        // floating panel, so core's displayOnStart auto-open loop doesn't apply.
-        // Open it here when the admin has enabled Display on Start.
-        if (this.displayOnStart) openFromTopbar()
     },
     make() {
         this.MMGISInterface = new interfaceWithMMGIS()
@@ -682,8 +680,16 @@ function interfaceWithMMGIS() {
             .querySelector('#agentChatClose')
             ?.addEventListener('click', () => {
                 const toRestore = state.lastFocusedEl
-                // Properly destroy the tool to update made status and button state
-                AgentChatTool.destroy()
+                // Route through ToolController_ so MMGIS updates the tool's
+                // on/off state (activeSeparatedTools, UI store, toggle event);
+                // it calls our destroy() internally. Fall back to destroy() on
+                // older core that lacks closeTool.
+                const controller = window.ToolController_
+                if (controller && typeof controller.closeTool === 'function') {
+                    controller.closeTool('AgentChat')
+                } else {
+                    AgentChatTool.destroy()
+                }
                 setTimeout(() => {
                     if (toRestore && typeof toRestore.focus === 'function')
                         toRestore.focus()
@@ -2531,11 +2537,19 @@ function ensureTopbarLauncher(retry = 0) {
 function openFromTopbar(attempt = 0) {
     try {
         const controller = window.ToolController_
-        if (!controller || !Array.isArray(controller.toolModuleNames))
-            throw new Error('Tool controller unavailable')
-        const idx = controller.toolModuleNames.indexOf('AgentChatTool')
-        if (idx === -1) throw new Error('AgentChat tool not registered')
-        controller.makeTool('AgentChatTool', idx)
+        if (!controller) throw new Error('Tool controller unavailable')
+        // Prefer the type-agnostic openTool API so open/close stay symmetric
+        // (registers activeSeparatedTools, UI store, toggle event). Fall back
+        // to makeTool on older core that lacks openTool.
+        if (typeof controller.openTool === 'function') {
+            controller.openTool('AgentChat')
+        } else {
+            if (!Array.isArray(controller.toolModuleNames))
+                throw new Error('Tool controller unavailable')
+            const idx = controller.toolModuleNames.indexOf('AgentChatTool')
+            if (idx === -1) throw new Error('AgentChat tool not registered')
+            controller.makeTool('AgentChatTool', idx)
+        }
     } catch (err) {
         if (attempt < 5) {
             setTimeout(() => openFromTopbar(attempt + 1), 200)
