@@ -570,7 +570,7 @@ function interfaceWithMMGIS() {
         overlay.style.pointerEvents = 'none'
         const startW = 450
         const startH = 580
-        const topPad = 40
+        const topPad = 48
         const rightPad = 40
         overlay.style.left = `${Math.max(
             8,
