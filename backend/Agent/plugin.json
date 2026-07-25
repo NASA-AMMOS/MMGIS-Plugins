@@ -12,7 +12,8 @@
     "example": {
       "LLM_PROVIDER": "(string) 'azure' or 'gemini' — selects the active LLM provider",
       "PROJECT_ENDPOINT": "(string) Azure AI Foundry project endpoint URL",
-      "AZURE_AI_FOUNDRY_AGENT_ID": "(string) Azure AI Foundry agent ID",
+      "AGENT_NAME": "(string) Published Azure AI Foundry agent name",
+      "AGENT_VERSION": "(string) Published Azure AI Foundry agent version",
       "GEMINI_API_KEY": "(string) Google Gemini API key"
     }
   },
@@ -25,8 +26,8 @@
     "WITH_AGENT": "(string) Set to 'true' to enable the Agent plugin; any other value disables it",
     "LLM_PROVIDER": "(string) 'azure' or 'gemini' — selects the active LLM provider [default 'azure']",
     "PROJECT_ENDPOINT": "(string) Azure AI Foundry project endpoint URL",
-    "AZURE_AI_FOUNDRY_AGENT_ID": "(string) Azure AI Foundry agent ID to run",
-    "AZURE_BING_CONNECTION_ID": "(string, optional) Azure AI Foundry Bing grounding connection ID",
+    "AGENT_NAME": "(string) Published Azure AI Foundry agent name",
+    "AGENT_VERSION": "(string) Published Azure AI Foundry agent version",
     "GEMINI_API_KEY": "(string) Google Gemini API key",
     "GEMINI_MODEL": "(string) Gemini model name [default 'gemini-2.0-flash']",
     "MMGIS_PYTHON": "(string) Path to Python executable for raster analysis [default 'python3']"
@@ -49,7 +50,7 @@
   },
   "dependencies": {
     "npm": {
-      "@azure/ai-agents": "^1.0.0-beta.1",
+      "@azure/ai-projects": "^2.3.1",
       "@azure/core-auth": "^1.7.2",
       "@azure/identity": "^4.4.0",
       "@terraformer/wkt": "^2.2.0",

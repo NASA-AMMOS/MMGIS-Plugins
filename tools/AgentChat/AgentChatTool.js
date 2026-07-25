@@ -19,7 +19,16 @@ import {
     normalizeLayerText,
     resolveLayerSelection,
 } from './layerResolver'
+import { getCurrentMission } from './rendererUtils'
 import './AgentChatTool.css'
+
+function agentApiUrl(path = '') {
+    const base = `${window.mmgisglobal.ROOT_PATH || ''}/api/agent${path}`
+    const mission = getCurrentMission()
+    if (!mission) return base
+    const sep = base.includes('?') ? '&' : '?'
+    return `${base}${sep}mission=${encodeURIComponent(mission)}`
+}
 const HISTORY_KEY = 'mmgis.agent.chat.history.v1'
 const CONVERSATION_ID_KEY = 'mmgis.agent.chat.conversationId'
 const TRACE_PREF_KEY = 'mmgis.agent.chat.showDebug'
@@ -1052,6 +1061,14 @@ function interfaceWithMMGIS() {
 
     async function callAgent(message) {
         try {
+            if (!getCurrentMission()) {
+                return {
+                    text: "Agent failed: No active mission. Open a mission in MMGIS first.",
+                    reply: "Agent failed: No active mission. Open a mission in MMGIS first.",
+                    actions: [],
+                    debug: { reason: 'missing_mission' },
+                }
+            }
             const payload = { message }
             if (state.conversationId) payload.conversationId = state.conversationId
             const context = buildAgentContext()
@@ -1066,14 +1083,11 @@ function interfaceWithMMGIS() {
                     content: String(h.reply || h.text || '').slice(0, 1500),
                 }))
                 .filter((h) => h.content)
-            const res = await fetch(
-                window.mmgisglobal.ROOT_PATH + '/api/agent',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                }
-            )
+            const res = await fetch(agentApiUrl(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
             const responsePayload = await res.json().catch(() => null)
             if (!res.ok) {
                 const errorMsg =

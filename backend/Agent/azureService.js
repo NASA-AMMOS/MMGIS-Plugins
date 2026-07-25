@@ -1,22 +1,25 @@
 "use strict";
 
 /**
- * Azure AI Agent Service helpers.
+ * Azure AI Projects helpers (Foundry Agents via OpenAI-compatible Responses API).
  *
- * This module mirrors the GA JavaScript samples:
- * https://github.com/Azure/azure-sdk-for-js/tree/main/sdk/ai/ai-agents/samples/v1-beta
+ * Migrated from the deprecated `@azure/ai-agents` threads/runs client to
+ * `@azure/ai-projects` + `AIProjectClient.getOpenAIClient()`.
  *
- * Quick primer for newcomers:
+ * Quick primer:
  *   1. Authenticate with `DefaultAzureCredential` (run `az login` beforehand).
- *   2. Use strongly-typed helpers from `@azure/ai-agents` such as `ToolSet`.
- *   3. Keep threads short-lived to avoid cluttering the Azure AI project.
+ *   2. Point PROJECT_ENDPOINT at your Foundry project URL.
+ *   3. Reference a published agent by AGENT_NAME + AGENT_VERSION.
+ *   4. Conversations replace the old "threads"; we still expose `threadId`
+ *      for compatibility with the Agent conversation store.
  */
 
-const { AgentsClient, ToolSet, isOutputOfType } = require("@azure/ai-agents");
+const { AIProjectClient } = require("@azure/ai-projects");
 const { DefaultAzureCredential } = require("@azure/identity");
 
-const SUCCESS_STATUSES = new Set(["completed", "succeeded"]);
-let sharedClient = null;
+let sharedProjectClient = null;
+let sharedOpenAIClient = null;
+let sharedEndpoint = "";
 
 function createMissingEnvError(missing) {
   const missingList = Array.isArray(missing)
@@ -39,205 +42,192 @@ function readEnv(key) {
 
 /**
  * Surface the minimum configuration the service needs.
- * The doc set now calls these values PROJECT_ENDPOINT and Agent Id.
+ * PROJECT_ENDPOINT + AGENT_NAME + AGENT_VERSION.
  */
 function haveFasEnv() {
   const endpoint = readEnv("PROJECT_ENDPOINT");
-  const agentId = readEnv("AZURE_AI_FOUNDRY_AGENT_ID");
-  const bingConnectionId = readEnv("AZURE_BING_CONNECTION_ID");
+  const agentName = readEnv("AGENT_NAME");
+  const agentVersion = readEnv("AGENT_VERSION");
   const missing = [];
   if (!endpoint) missing.push("PROJECT_ENDPOINT");
-  if (!agentId) missing.push("AZURE_AI_FOUNDRY_AGENT_ID");
+  if (!agentName) missing.push("AGENT_NAME");
+  if (!agentVersion) missing.push("AGENT_VERSION");
   return {
     ok: missing.length === 0,
     missing,
     endpoint,
-    agentId,
-    bingConnectionId,
-    apiVersion: "v1-beta",
+    agentName,
+    agentVersion,
+    apiVersion: "ai-projects",
   };
 }
 
+function getProjectClient(endpoint) {
+  if (!sharedProjectClient || sharedEndpoint !== endpoint) {
+    sharedProjectClient = new AIProjectClient(
+      endpoint,
+      new DefaultAzureCredential(),
+    );
+    sharedOpenAIClient = null;
+    sharedEndpoint = endpoint;
+  }
+  return sharedProjectClient;
+}
+
+function getOpenAIClient(endpoint) {
+  const project = getProjectClient(endpoint);
+  if (!sharedOpenAIClient) {
+    sharedOpenAIClient = project.getOpenAIClient();
+  }
+  return sharedOpenAIClient;
+}
+
+/** @deprecated Prefer getOpenAIClient — kept for callers that still import getClient. */
 function getClient(endpoint) {
-  if (!sharedClient) {
-    sharedClient = new AgentsClient(endpoint, new DefaultAzureCredential());
-  }
-  return sharedClient;
+  return getOpenAIClient(endpoint);
 }
 
-function buildBingToolSet(connectionId) {
-  if (!connectionId) return null;
-  const toolSet = new ToolSet();
-  toolSet.addBingGroundingTool([{ connectionId }]);
-  return toolSet;
+function agentReferenceBody(cfg) {
+  // Current Foundry Responses samples use top-level `agent_reference`
+  // with required discriminator `type: "agent_reference"`.
+  return {
+    agent_reference: {
+      name: cfg.agentName,
+      version: cfg.agentVersion,
+      type: "agent_reference",
+    },
+  };
 }
 
-async function collectMessages(client, threadId) {
-  const messages = [];
-  for await (const msg of client.messages.list(threadId)) {
-    // list() yields newest-first; unshift keeps chronological order for easy reading.
-    messages.unshift(msg);
-  }
-  return messages;
+function assistantMessageFromText(text) {
+  const content = typeof text === "string" ? text : "";
+  return {
+    role: "assistant",
+    content: [{ type: "text", text: { value: content } }],
+    text: content,
+  };
 }
 
-function findLatestAssistantMessage(messages) {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i]?.role === "assistant") return messages[i];
-  }
-  return messages[0] || {};
+function responseStatus(response) {
+  return response?.status || response?.error?.code || "completed";
 }
 
-function getTextContent(message) {
-  const parts = Array.isArray(message?.content) ? message.content : [];
-  for (const part of parts) {
-    if (isOutputOfType(part, "text")) {
-      const textValue = part?.text?.value ?? part?.text;
-      if (typeof textValue === "string" && textValue.trim().length > 0) {
-        return textValue.trim();
-      }
+async function resolveConversation(openAIClient, conversationId, messageText) {
+  if (conversationId) {
+    try {
+      await openAIClient.conversations.retrieve(conversationId);
+      await openAIClient.conversations.items.create(conversationId, {
+        items: [
+          { type: "message", role: "user", content: messageText },
+        ],
+      });
+      return { id: conversationId, reused: true };
+    } catch (_) {
+      // Conversation expired or deleted; create a new one with this message.
     }
   }
-  return "";
+
+  const conversation = await openAIClient.conversations.create({
+    items: [{ type: "message", role: "user", content: messageText }],
+  });
+  return { id: conversation.id, reused: false };
 }
 
-function extractLinksFromMessage(message) {
-  const links = [];
-  const citations = [];
-  const parts = Array.isArray(message?.content) ? message.content : [];
-  for (const part of parts) {
-    if (isOutputOfType(part, "text")) {
-      const annotations = Array.isArray(part?.text?.annotations)
-        ? part.text.annotations
-        : [];
-      for (const annotation of annotations) {
-        const url =
-          annotation?.url || annotation?.source?.url || annotation?.source;
-        if (url && typeof url === "string") {
-          citations.push(url);
-          if (!links.some((existing) => existing.url === url)) {
-            links.push({ title: annotation?.title || url, url });
-          }
-        }
-      }
-    }
-    if (Array.isArray(part?.citations)) {
-      for (const citation of part.citations) {
-        const url = citation?.url || citation?.source?.url || citation?.source;
-        if (url && typeof url === "string") {
-          citations.push(url);
-          if (!links.some((existing) => existing.url === url)) {
-            links.push({ title: citation?.title || url, url });
-          }
-        }
-      }
-    }
-  }
-  return { links, citations };
-}
-
-async function executeAgentRun(messageText, { toolSet, threadId, keepThread } = {}) {
+async function executeAgentRun(messageText, { threadId, keepThread } = {}) {
   const cfg = haveFasEnv();
   if (!cfg.ok) {
     throw createMissingEnvError(cfg.missing);
   }
 
-  const client = getClient(cfg.endpoint);
-  const activeToolSet = toolSet || buildBingToolSet(cfg.bingConnectionId);
-  let thread = null;
-  let run = null;
+  const openAIClient = getOpenAIClient(cfg.endpoint);
+  let conversationId = null;
+  let response = null;
   try {
-    if (threadId) {
-      try {
-        thread = await client.threads.get(threadId);
-      } catch (_) {
-        // Thread expired or deleted; create a new one
-        thread = await client.threads.create();
-      }
-    } else {
-      thread = await client.threads.create();
-    }
-    await client.messages.create(thread.id, "user", messageText);
+    const conversation = await resolveConversation(
+      openAIClient,
+      threadId,
+      messageText,
+    );
+    conversationId = conversation.id;
 
-    const runOptions = {};
-    const resources = activeToolSet?.toolResources;
-    if (resources && Object.keys(resources).length > 0) {
-      runOptions.toolResources = resources;
-    }
+    response = await openAIClient.responses.create(
+      { conversation: conversationId },
+      { body: agentReferenceBody(cfg) },
+    );
 
-    run = await client.runs.createAndPoll(thread.id, cfg.agentId, runOptions);
-    if (!SUCCESS_STATUSES.has(run.status)) {
+    const outputText =
+      typeof response?.output_text === "string" ? response.output_text : "";
+    const status = responseStatus(response);
+    if (status && status !== "completed" && status !== "succeeded") {
       const failureReason =
-        run?.lastError?.message ||
-        run?.lastError?.code ||
-        (run?.status && run.status !== "failed"
-          ? run.status
-          : "AgentRunFailed");
+        response?.error?.message ||
+        response?.error?.code ||
+        status ||
+        "AgentRunFailed";
       const err = new Error(`Azure Agent Service run failed: ${failureReason}`);
       err.code = "AzureAgentRunFailed";
-      err.run = run;
+      err.run = response;
       throw err;
     }
 
-    const messages = await collectMessages(client, thread.id);
-    const assistant = findLatestAssistantMessage(messages);
-    return { run, message: assistant, messages, threadId: thread.id };
+    const assistant = assistantMessageFromText(outputText);
+    return {
+      run: {
+        id: response?.id || null,
+        status,
+      },
+      message: assistant,
+      messages: [assistant],
+      threadId: conversationId,
+    };
   } catch (error) {
-    if (run && !error.run) {
-      error.run = run;
+    if (response && !error.run) {
+      error.run = response;
     }
     throw error;
   } finally {
-    if (thread?.id && !keepThread) {
+    if (conversationId && !keepThread) {
       try {
-        await client.threads.delete(thread.id);
+        await openAIClient.conversations.delete(conversationId);
       } catch (_) {
-        // A best-effort cleanup; stale threads can always be inspected later via the Azure portal.
+        // Best-effort cleanup; stale conversations can be inspected in Azure.
       }
     }
   }
 }
 
-async function* executeAgentRunStreaming(messageText, { toolSet, threadId, keepThread } = {}) {
+async function* executeAgentRunStreaming(
+  messageText,
+  { threadId, keepThread } = {},
+) {
   const cfg = haveFasEnv();
   if (!cfg.ok) {
     throw createMissingEnvError(cfg.missing);
   }
 
-  const client = getClient(cfg.endpoint);
-  const activeToolSet = toolSet || buildBingToolSet(cfg.bingConnectionId);
-  let thread = null;
+  const openAIClient = getOpenAIClient(cfg.endpoint);
+  let conversationId = null;
   try {
-    if (threadId) {
-      try {
-        thread = await client.threads.get(threadId);
-      } catch (_) {
-        thread = await client.threads.create();
-      }
-    } else {
-      thread = await client.threads.create();
-    }
-    await client.messages.create(thread.id, "user", messageText);
+    const conversation = await resolveConversation(
+      openAIClient,
+      threadId,
+      messageText,
+    );
+    conversationId = conversation.id;
 
-    const runOptions = {};
-    const resources = activeToolSet?.toolResources;
-    if (resources && Object.keys(resources).length > 0) {
-      runOptions.toolResources = resources;
-    }
+    const stream = openAIClient.responses.stream(
+      { conversation: conversationId },
+      { body: agentReferenceBody(cfg) },
+    );
 
-    // Use runs.create() which returns AgentRunResponse with .stream()
-    const runResponse = client.runs.create(thread.id, cfg.agentId, runOptions);
-    const eventStream = await runResponse.stream();
-
-    for await (const event of eventStream) {
-      // Yield threadId on the first event so callers can persist it
-      event._threadId = thread.id;
+    for await (const event of stream) {
+      event._threadId = conversationId;
       yield event;
     }
   } finally {
-    if (thread?.id && !keepThread) {
+    if (conversationId && !keepThread) {
       try {
-        await client.threads.delete(thread.id);
+        await openAIClient.conversations.delete(conversationId);
       } catch (_) {}
     }
   }
@@ -251,4 +241,11 @@ async function* streamAgentMessage(messageText, options = {}) {
   yield* executeAgentRunStreaming(messageText, options);
 }
 
-module.exports = { haveFasEnv, runAgentMessage, streamAgentMessage, getClient };
+module.exports = {
+  haveFasEnv,
+  runAgentMessage,
+  streamAgentMessage,
+  getClient,
+  getOpenAIClient,
+  getProjectClient,
+};

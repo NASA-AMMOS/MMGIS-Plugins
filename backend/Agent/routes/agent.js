@@ -1408,13 +1408,13 @@ router.delete("/conversations/:id", async (req, res) => {
     if (!conversation) {
       return res.status(404).json({ error: "Conversation not found." });
     }
-    // Best-effort cleanup of Azure thread
+    // Best-effort cleanup of Azure conversation (legacy field: azureThreadId)
     if (conversation.azureThreadId) {
       try {
         const cfg = haveFasEnv();
         if (cfg.ok) {
           const client = getClient(cfg.endpoint);
-          await client.threads.delete(conversation.azureThreadId);
+          await client.conversations.delete(conversation.azureThreadId);
         }
       } catch (_) {
         // Non-fatal

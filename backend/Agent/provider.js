@@ -311,7 +311,9 @@ async function planWithProvider(message, context = {}, { threadId, registry, too
     try {
       const azure = await runAgentMessage(prompt, {
         threadId,
-        keepThread: !!threadId,
+        // Always keep; routes persist azureThreadId for multi-turn, and
+        // DELETE /conversations/:id cleans up the Azure conversation.
+        keepThread: true,
       });
       const assistantMessage = azure?.message;
       if (!assistantMessage) {
@@ -387,7 +389,7 @@ async function planWithProvider(message, context = {}, { threadId, registry, too
 
   } else {
     throw new Error(
-      "No LLM provider configured. Set Azure env vars (PROJECT_ENDPOINT, AZURE_AI_FOUNDRY_AGENT_ID) or GEMINI_API_KEY.",
+      "No LLM provider configured. Set Azure env vars (PROJECT_ENDPOINT, AGENT_NAME, AGENT_VERSION) or GEMINI_API_KEY.",
     );
   }
 }
@@ -416,42 +418,70 @@ async function* streamWithProvider(message, context = {}, { threadId, registry, 
 
     for await (const event of streamAgentMessage(prompt, {
       threadId,
-      keepThread: !!threadId,
+      keepThread: true,
     })) {
       if (!resolvedThreadId && event._threadId) {
         resolvedThreadId = event._threadId;
       }
 
-      if (event.event === "thread.message.delta") {
-        const contentParts = event.data?.delta?.content || [];
-        for (const part of contentParts) {
-          if (part.type === "text" && part.text?.value) {
-            fullText += part.text.value;
-            yield { type: "token", data: part.text.value };
+      // New @azure/ai-projects Responses stream events
+      if (event.type === "response.output_text.delta") {
+        const delta = typeof event.delta === "string" ? event.delta : "";
+        if (delta) {
+          fullText += delta;
+          yield { type: "token", data: delta };
+        }
+      } else if (
+        event.type === "response.output_text.done" ||
+        event.type === "response.completed"
+      ) {
+        if (!fullText) {
+          fullText =
+            (typeof event.text === "string" && event.text) ||
+            (typeof event.response?.output_text === "string" &&
+              event.response.output_text) ||
+            "";
+        }
+        if (event.type === "response.completed") {
+          try {
+            const plan = parseAgentPlan(fullText);
+            const actions = normalizeActions(plan.actions, toolOptions);
+            const reply =
+              typeof plan.reply === "string" && plan.reply.trim().length > 0
+                ? plan.reply.trim()
+                : fullText.trim();
+            const citations = normalizeCitations(plan.citations);
+            yield {
+              type: "plan",
+              data: {
+                actions,
+                reply,
+                citations,
+                threadId: resolvedThreadId,
+                provider: "azure",
+              },
+            };
+          } catch (_) {
+            yield {
+              type: "plan",
+              data: {
+                actions: [],
+                reply: fullText.trim(),
+                citations: [],
+                threadId: resolvedThreadId,
+                provider: "azure",
+              },
+            };
           }
         }
-      } else if (event.event === "thread.message.completed") {
-        try {
-          const plan = parseAgentPlan(fullText);
-          const actions = normalizeActions(plan.actions, toolOptions);
-          const reply =
-            typeof plan.reply === "string" && plan.reply.trim().length > 0
-              ? plan.reply.trim()
-              : fullText.trim();
-          const citations = normalizeCitations(plan.citations);
-          yield {
-            type: "plan",
-            data: { actions, reply, citations, threadId: resolvedThreadId, provider: "azure" },
-          };
-        } catch (_) {
-          yield {
-            type: "plan",
-            data: { actions: [], reply: fullText.trim(), citations: [], threadId: resolvedThreadId, provider: "azure" },
-          };
-        }
-      } else if (event.event === "thread.run.failed") {
+      } else if (
+        event.type === "response.failed" ||
+        event.type === "error"
+      ) {
         const reason =
-          event.data?.lastError?.message || "Agent run failed during streaming.";
+          event.error?.message ||
+          event.response?.error?.message ||
+          "Agent run failed during streaming.";
         yield { type: "error", data: reason };
       }
     }
@@ -490,7 +520,7 @@ async function* streamWithProvider(message, context = {}, { threadId, registry, 
 
   } else {
     throw new Error(
-      "No LLM provider configured. Set Azure env vars (PROJECT_ENDPOINT, AZURE_AI_FOUNDRY_AGENT_ID) or GEMINI_API_KEY.",
+      "No LLM provider configured. Set Azure env vars (PROJECT_ENDPOINT, AGENT_NAME, AGENT_VERSION) or GEMINI_API_KEY.",
     );
   }
 }
