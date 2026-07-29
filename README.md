@@ -18,12 +18,14 @@ npm run build
 
 ## Available Plugins
 
-| Plugin    | Type | Tier         | Description                                                                   | Notes                            |
-| --------- | ---- | ------------ | ----------------------------------------------------------------------------- | -------------------------------- |
-| Analysis  | tool | experimental | A graphing and analysis tool for data visualization and statistical analysis. | Backend server not yet released. |
-| Chemistry | tool | official     | Display chemistry percentages via graphs of a clicked point.                  |                                  |
-| Isochrone | tool | official     | Find the range of locations accessible to an explorer within a given time     |                                  |
-| Segment   | tool | experimental | Segment map features using SAM3 AI model with text prompts.                   | Backend server not yet released. |
+| Plugin    | Type    | Tier         | Description                                                                             | Notes                             |
+| --------- | ------- | ------------ | ---------------------------------------------------------------------------------------- | ---------------------------------- |
+| Agent     | backend | experimental | AI Agent backend — LLM providers (Azure AI Foundry, Gemini), generic MMGIS tool registry, and REST routes exposed at /api/agent. |  |
+| AgentChat | tool    | experimental | Natural-language chat panel that sends queries to the Agent backend and renders tool-call results directly on the map. | Requires the Agent backend plugin. |
+| Analysis  | tool    | experimental | A graphing and analysis tool for data visualization and statistical analysis.             | Backend server not yet released.  |
+| Chemistry | tool    | official     | Display chemistry percentages via graphs of a clicked point.                             |                                    |
+| Isochrone | tool    | official     | Find the range of locations accessible to an explorer within a given time                |                                    |
+| Segment   | tool    | experimental | Segment map features using SAM3 AI model with text prompts.                              | Backend server not yet released.  |
 | Workflows | tool, backend | experimental | Submit jobs to an external workflows API and add completed runs' outputs as map layers. | Requires an external workflows API; set its base URL in the tool's configuration. |
 
 ## Plugin Tiers

@@ -1,0 +1,53 @@
+{
+  "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "id": "experimental-agent-chat",
+  "version": "5.0.14-20260526",
+  "type": "tool",
+  "tier": "experimental",
+  "engines": { "mmgis": ">=5.0.0" },
+  "overridable": true,
+  "defaultIcon": "robot-outline",
+  "description": "Natural-language chat panel that sends queries to the Agent backend and renders tool-call results directly on the map.",
+  "descriptionFull": {
+    "title": "Chat with the MMGIS Agent to list layers, toggle visibility, adjust opacity, zoom to features, run analysis, and more — all via natural language.",
+    "example": {
+      "variables.displayOnStart": "(bool) If true, the Copilot panel opens automatically on page load [default false]"
+    }
+  },
+  "hasVars": true,
+  "name": "AgentChat",
+  "toolbarPriority": 3,
+  "separatedTool": "custom",
+  "paths": {
+    "AgentChatTool": "./AgentChatTool"
+  },
+  "expandable": false,
+  "config": {
+    "rows": [
+      {
+        "components": [
+          {
+            "field": "variables.displayOnStart",
+            "name": "Display on Start",
+            "description": "Whether the Copilot panel should automatically open on page load.",
+            "type": "checkbox",
+            "width": 3,
+            "defaultChecked": false
+          },
+          {
+            "field": "variables.agentApiUrl",
+            "name": "Agent API URL",
+            "description": "Base URL for the Agent backend API (e.g., https://example.com/api/agent). Required for tool to function.",
+            "type": "text",
+            "width": 7,
+            "placeholder": "https://example.com/api/agent"
+          }
+        ]
+      }
+    ]
+  },
+  "dependencies": {},
+  "author": "yunks128",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/NASA-AMMOS/MMGIS-Plugins/"
+}

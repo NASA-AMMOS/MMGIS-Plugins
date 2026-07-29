@@ -1,0 +1,12 @@
+{
+  "queries": [
+    "Show me the sea ice forecast for January 2024",
+    "What is the predicted sea ice concentration today?",
+    "Compare the AI prediction with ground truth for last week",
+    "Turn on the forecast prediction layer",
+    "Show the difference between predicted and ground truth ice",
+    "What layers are available in this mission?",
+    "Zoom to the Arctic region",
+    "What is the sea ice extent trend over 2023?"
+  ]
+}

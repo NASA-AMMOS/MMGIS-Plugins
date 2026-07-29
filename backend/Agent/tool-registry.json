@@ -1,0 +1,1430 @@
+{
+  "generatedAt": "2026-04-30T03:33:33.090415Z",
+  "kind": "mmgis-tool-registry",
+  "tools": [
+    {
+      "description": "Compute a difference map between two layers and visualize the result.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "layer_difference"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_a": {
+            "type": "string"
+          },
+          "layer_b": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_a",
+          "layer_b"
+        ],
+        "type": "object"
+      },
+      "name": "calculate_layer_difference",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_a": {
+            "description": "Display name or alias of the minuend layer.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "layer_b": {
+            "description": "Display name or alias of the subtrahend layer.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_a",
+          "layer_b"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Compute mean, standard deviation, and 25/50/75 percentiles for a layer over a named geographic region. Minor typos or paraphrased layer names are normalized automatically; the Copilot confirms the intent to calculate averages when necessary.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "layer_mean"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {
+          "geographical_area": {
+            "type": "string"
+          },
+          "layer_name": {
+            "type": "string"
+          },
+          "time_end": {
+            "type": "string"
+          },
+          "time_start": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_name",
+          "geographical_area"
+        ],
+        "type": "object"
+      },
+      "name": "calculate_layer_mean",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "geographical_area": {
+            "description": "Named area of interest (e.g., 'Beaufort Sea').",
+            "minLength": 1,
+            "type": "string"
+          },
+          "layer_name": {
+            "description": "Layer display name or alias. Minor typos and paraphrased names are auto-corrected.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "time_end": {
+            "description": "Optional ISO 8601 timestamp representing the end of the analysis window.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "time_start": {
+            "description": "Optional ISO 8601 timestamp representing the start of the analysis window.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_name",
+          "geographical_area"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Detect statistical anomalies in layer data using z-score and IQR methods. Identifies outliers, extreme values, and unusual patterns in geospatial datasets.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "anomaly_detection"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {
+          "layer_name": {
+            "type": "string"
+          },
+          "geographical_area": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "auto",
+              "zscore",
+              "iqr",
+              "spatial"
+            ],
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "time_start": {
+            "type": "string"
+          },
+          "time_end": {
+            "type": "string"
+          },
+          "visualize": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      },
+      "name": "detect_anomalies",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_name": {
+            "description": "The name of the layer to analyze for anomalies (e.g., 'SWOT November 2024', 'ICESat-2 freeboard')",
+            "minLength": 1,
+            "type": "string"
+          },
+          "geographical_area": {
+            "description": "The geographical area to analyze (e.g., 'Beaufort Sea', 'Arctic Ocean', 'current view'). Defaults to current view if not specified.",
+            "type": "string"
+          },
+          "method": {
+            "description": "The anomaly detection method to use. 'auto' uses both z-score and IQR methods.",
+            "enum": [
+              "auto",
+              "zscore",
+              "iqr",
+              "spatial"
+            ],
+            "type": "string"
+          },
+          "threshold": {
+            "description": "The threshold for anomaly detection. For z-score method, this is the number of standard deviations (default 2.5).",
+            "type": "number"
+          },
+          "time_start": {
+            "description": "Start time for temporal analysis in ISO format (e.g., '2024-11-01')",
+            "type": "string"
+          },
+          "time_end": {
+            "description": "End time for temporal analysis in ISO format (e.g., '2024-11-30')",
+            "type": "string"
+          },
+          "visualize": {
+            "description": "Whether to highlight anomalous regions on the map (default true)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Summarize metadata for a specific layer by display name.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "layer_summary"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "describe_layer",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Remove the temporary highlight overlay.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "highlight_clear"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "highlight_clear",
+      "parameters": {
+        "additionalProperties": false,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Adjust the opacity of the temporary highlight overlay.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "highlight_opacity"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": false,
+        "properties": {
+          "delta": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "delta"
+        ],
+        "type": "object"
+      },
+      "name": "highlight_opacity",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "delta": {
+            "description": "+/- change",
+            "type": "number"
+          }
+        },
+        "required": [
+          "delta"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Hide or show the temporary highlight overlay.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "highlight_toggle"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "highlight_toggle",
+      "parameters": {
+        "additionalProperties": false,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Provide metadata details for a requested MMGIS layer using local knowledge or web grounding.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "layer_information"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_name": {
+            "type": "string"
+          },
+          "original_query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      },
+      "name": "layer_information",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_name": {
+            "description": "Display name or alias of the layer to describe.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "original_query": {
+            "description": "Raw user query to echo for confirmation or paraphrasing.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "List which layers support advanced analysis (calculations, statistics, anomaly detection) vs visualization-only layers. Shows which data can be analyzed.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "list_analyzable_layers"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_analyzable_layers",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "description": "List all layers with their on/off state.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "layers_line"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_layers",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "description": "Set a layer opacity in [0,1], clamped.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "opacity"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "opacity": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "opacity"
+        ],
+        "type": "object"
+      },
+      "name": "set_layer_opacity",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Display name of the layer",
+            "minLength": 1,
+            "type": "string"
+          },
+          "opacity": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "opacity"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Create a temporary highlight overlay by rescaling a numeric raster layer so values above, below, or between thresholds stand out.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "threshold_highlight"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {
+          "geographical_area": {
+            "type": "string"
+          },
+          "layer_name": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "operator": {
+            "enum": [
+              ">",
+              ">=",
+              "<",
+              "<=",
+              "=",
+              "==",
+              "between"
+            ],
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "time_end": {
+            "type": "string"
+          },
+          "time_start": {
+            "type": "string"
+          },
+          "time_window": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          },
+          "value_max": {
+            "type": "number"
+          },
+          "value_min": {
+            "type": "number"
+          },
+          "variable": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_name",
+          "variable",
+          "operator"
+        ],
+        "type": "object"
+      },
+      "name": "threshold_highlight",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "geographical_area": {
+            "description": "Optional named area to scope the highlight.",
+            "type": "string"
+          },
+          "layer_name": {
+            "description": "Layer display name or alias.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "Optional label for the temporary overlay.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "operator": {
+            "enum": [
+              ">",
+              ">=",
+              "<",
+              "<=",
+              "=",
+              "==",
+              "between"
+            ],
+            "type": "string"
+          },
+          "time": {
+            "description": "Single timestamp or label for the requested slice.",
+            "type": "string"
+          },
+          "time_end": {
+            "type": "string"
+          },
+          "time_start": {
+            "type": "string"
+          },
+          "time_window": {
+            "description": "Relative window such as 'P7D' or 'past week'.",
+            "type": "string"
+          },
+          "unit": {
+            "description": "Units for threshold values (e.g., m, cm, mm).",
+            "type": "string"
+          },
+          "value": {
+            "description": "Threshold value for single-sided comparisons.",
+            "type": "number"
+          },
+          "value_max": {
+            "description": "Upper bound when operator is \"between\".",
+            "type": "number"
+          },
+          "value_min": {
+            "description": "Lower bound when operator is \"between\".",
+            "type": "number"
+          },
+          "variable": {
+            "description": "Variable name within the layer to evaluate.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_name",
+          "variable",
+          "operator"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Set the time for the map and all time-enabled layers. Accepts dates like 'February 2024', '2024-02-15', 'latest', etc.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "set_visible_layers_time"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {
+          "time": {
+            "type": "string"
+          },
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "time"
+        ],
+        "type": "object"
+      },
+      "name": "set_time",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "time": {
+            "description": "Time expression like 'January 2024', '2024-01-15', 'latest', 'oldest', etc.",
+            "type": "string",
+            "minLength": 1
+          },
+          "layers": {
+            "description": "Optional array of layer names to set time for. If omitted, sets time for all visible time-enabled layers.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "time"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Toggle a layer visibility by display name. If visible=true show; false hide.",
+      "execution": {
+        "adapter": "mmgisAPI",
+        "argOrder": [
+          "name",
+          "visible"
+        ],
+        "method": "toggleLayer",
+        "nameResolution": "displayNameToInternalId",
+        "ui": {
+          "type": "toggle"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "visible": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "visible"
+        ],
+        "type": "object"
+      },
+      "name": "toggle_layer",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Display name of the layer",
+            "minLength": 1,
+            "type": "string"
+          },
+          "visible": {
+            "description": "Target visibility state",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "visible"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Calculate comprehensive statistics for multiple layers including mean, std, correlation analysis, and cross-layer comparisons. Useful for understanding relationships between different datasets.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "multilayer_statistics"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {
+          "layer_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2
+          },
+          "geographical_area": {
+            "type": "string"
+          },
+          "time_range": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "type": "string"
+              }
+            }
+          },
+          "include_correlation": {
+            "type": "boolean"
+          },
+          "include_visualization": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "layer_names"
+        ],
+        "type": "object"
+      },
+      "name": "multilayer_statistics",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "description": "List of layer names to analyze (minimum 2 layers required)"
+          },
+          "geographical_area": {
+            "type": "string",
+            "description": "The geographical area to analyze (e.g., 'Beaufort Sea', 'Arctic Ocean', 'current view'). Defaults to current view if not specified."
+          },
+          "time_range": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "description": "Start time in ISO format (e.g., '2024-01-01')"
+              },
+              "end": {
+                "type": "string",
+                "description": "End time in ISO format (e.g., '2024-12-31')"
+              }
+            },
+            "description": "Optional time range for temporal analysis"
+          },
+          "include_correlation": {
+            "type": "boolean",
+            "description": "Whether to calculate correlation coefficients between layers (default true)"
+          },
+          "include_visualization": {
+            "type": "boolean",
+            "description": "Whether to show analysis area on map (default false)"
+          }
+        },
+        "required": [
+          "layer_names"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Analyze temporal trends in a layer over time, detecting seasonal patterns, long-term trends, and anomalous periods. Useful for climate change analysis and temporal pattern detection.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "temporal_trends"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {
+          "layer_name": {
+            "type": "string"
+          },
+          "geographical_area": {
+            "type": "string"
+          },
+          "time_start": {
+            "type": "string"
+          },
+          "time_end": {
+            "type": "string"
+          },
+          "interval": {
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly",
+              "quarterly",
+              "yearly"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      },
+      "name": "temporal_trends",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_name": {
+            "type": "string",
+            "description": "The name of the layer to analyze for temporal trends (e.g., 'SWOT November 2024', 'ICESat-2 freeboard')"
+          },
+          "geographical_area": {
+            "type": "string",
+            "description": "The geographical area to analyze (e.g., 'Beaufort Sea', 'Arctic Ocean', 'current view'). Defaults to current view if not specified."
+          },
+          "time_start": {
+            "type": "string",
+            "description": "Start time for analysis in ISO format (e.g., '2024-01-01'). Defaults to '2024-01-01'."
+          },
+          "time_end": {
+            "type": "string",
+            "description": "End time for analysis in ISO format (e.g., '2024-12-31'). Defaults to '2024-12-31'."
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly",
+              "quarterly",
+              "yearly"
+            ],
+            "description": "Time interval for trend analysis (default 'monthly')"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Calculate spatial autocorrelation statistics using Moran's I and detect spatial clustering patterns. Identifies hotspots, coldspots, and spatial outliers in geospatial datasets.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "spatial_statistics"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {
+          "layer_name": {
+            "type": "string"
+          },
+          "geographical_area": {
+            "type": "string"
+          },
+          "grid_size": {
+            "type": "number"
+          },
+          "analysis_type": {
+            "enum": [
+              "moran",
+              "getis",
+              "ripley"
+            ],
+            "type": "string"
+          },
+          "visualize": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      },
+      "name": "spatial_statistics",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_name": {
+            "type": "string",
+            "description": "The name of the layer to analyze for spatial patterns (e.g., 'SWOT November 2024', 'ICESat-2 freeboard')"
+          },
+          "geographical_area": {
+            "type": "string",
+            "description": "The geographical area to analyze (e.g., 'Beaufort Sea', 'Arctic Ocean', 'current view'). Defaults to current view if not specified."
+          },
+          "grid_size": {
+            "type": "number",
+            "description": "Grid size for spatial analysis (default 16). Larger values provide more detailed analysis."
+          },
+          "analysis_type": {
+            "type": "string",
+            "enum": [
+              "moran",
+              "getis",
+              "ripley"
+            ],
+            "description": "Type of spatial analysis to perform (default 'moran' for Moran's I autocorrelation)"
+          },
+          "visualize": {
+            "type": "boolean",
+            "description": "Whether to highlight analysis area and patterns on the map (default true)"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Detect and quantify changes between two time periods in a dataset. Analyzes statistical differences, spatial change patterns, and significance of changes over time.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "change_detection"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {
+          "layer_name": {
+            "type": "string"
+          },
+          "geographical_area": {
+            "type": "string"
+          },
+          "before_time": {
+            "type": "string"
+          },
+          "after_time": {
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "visualize": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      },
+      "name": "change_detection",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_name": {
+            "type": "string",
+            "description": "The name of the layer to analyze for changes (e.g., 'SWOT November 2024', 'ICESat-2 freeboard')"
+          },
+          "geographical_area": {
+            "type": "string",
+            "description": "The geographical area to analyze (e.g., 'Beaufort Sea', 'Arctic Ocean', 'current view'). Defaults to current view if not specified."
+          },
+          "before_time": {
+            "type": "string",
+            "description": "Start time for 'before' period in ISO format (e.g., '2024-01-01'). Defaults to '2024-01-01'."
+          },
+          "after_time": {
+            "type": "string",
+            "description": "End time for 'after' period in ISO format (e.g., '2024-12-01'). Defaults to '2024-12-01'."
+          },
+          "threshold": {
+            "type": "number",
+            "description": "Change significance threshold as percentage (default 0.1 = 10%)"
+          },
+          "visualize": {
+            "type": "boolean",
+            "description": "Whether to highlight change area on map with color indicating increase/decrease (default true)"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Create temporal animations showing ice evolution over time. Provides playback controls and frame-by-frame visualization of changes.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "time_series_animation"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {
+          "layer_name": {
+            "type": "string"
+          },
+          "time_start": {
+            "type": "string"
+          },
+          "time_end": {
+            "type": "string"
+          },
+          "interval": {
+            "enum": [
+              "hourly",
+              "daily",
+              "weekly",
+              "monthly",
+              "quarterly",
+              "yearly"
+            ],
+            "type": "string"
+          },
+          "frame_rate": {
+            "type": "number"
+          },
+          "loop_mode": {
+            "enum": [
+              "once",
+              "loop",
+              "bounce"
+            ],
+            "type": "string"
+          },
+          "auto_play": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      },
+      "name": "time_series_animation",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_name": {
+            "type": "string",
+            "description": "The name of the layer to animate (e.g., 'SWOT freeboard', 'ICESat-2 thickness')"
+          },
+          "time_start": {
+            "type": "string",
+            "description": "Start time for animation in ISO format (e.g., '2024-01-01'). Defaults to '2024-01-01'."
+          },
+          "time_end": {
+            "type": "string",
+            "description": "End time for animation in ISO format (e.g., '2024-12-31'). Defaults to '2024-12-31'."
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "hourly",
+              "daily",
+              "weekly",
+              "monthly",
+              "quarterly",
+              "yearly"
+            ],
+            "description": "Time interval between frames (default 'monthly')"
+          },
+          "frame_rate": {
+            "type": "number",
+            "description": "Milliseconds per frame (default 1000ms). Lower values = faster animation."
+          },
+          "loop_mode": {
+            "type": "string",
+            "enum": [
+              "once",
+              "loop",
+              "bounce"
+            ],
+            "description": "Animation loop behavior (default 'loop')"
+          },
+          "auto_play": {
+            "type": "boolean",
+            "description": "Whether to automatically start playing the animation (default false)"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Export selected data for external analysis. Supports multiple formats including CSV, GeoJSON, NetCDF, and KML.",
+      "execution": {
+        "adapter": "custom",
+        "ui": {
+          "type": "data_export"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": true,
+        "properties": {
+          "layer_name": {
+            "type": "string"
+          },
+          "format": {
+            "enum": [
+              "csv",
+              "geojson",
+              "netcdf",
+              "kml",
+              "json"
+            ],
+            "type": "string"
+          },
+          "geographical_area": {
+            "type": "string"
+          },
+          "resolution": {
+            "enum": [
+              "full",
+              "medium",
+              "low"
+            ],
+            "type": "string"
+          },
+          "include_metadata": {
+            "type": "boolean"
+          },
+          "auto_download": {
+            "type": "boolean"
+          },
+          "time_range": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      },
+      "name": "data_export",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "layer_name": {
+            "type": "string",
+            "description": "The name of the layer to export (e.g., 'SWOT November 2024', 'ICESat-2 freeboard')"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "geojson",
+              "netcdf",
+              "kml",
+              "json"
+            ],
+            "description": "Export format (default 'csv')"
+          },
+          "geographical_area": {
+            "type": "string",
+            "description": "The geographical area to export (e.g., 'Beaufort Sea', 'current view'). Defaults to current view."
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "full",
+              "medium",
+              "low"
+            ],
+            "description": "Data resolution for export (default 'medium'). Lower resolution = smaller file size."
+          },
+          "include_metadata": {
+            "type": "boolean",
+            "description": "Whether to include metadata in the export (default true)"
+          },
+          "auto_download": {
+            "type": "boolean",
+            "description": "Whether to automatically trigger file download (default false)"
+          },
+          "time_range": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "description": "Start time in ISO format"
+              },
+              "end": {
+                "type": "string",
+                "description": "End time in ISO format"
+              }
+            },
+            "description": "Optional time range for temporal filtering"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Zoom to lon/lat and zoom level, or to a bbox.",
+      "execution": {
+        "adapter": "custom",
+        "name": "zoom_to",
+        "ui": {
+          "type": "zoom_view"
+        }
+      },
+      "modelParameters": {
+        "additionalProperties": false,
+        "properties": {
+          "bbox": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": "array"
+          },
+          "center": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "zoom": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "zoom_to",
+      "parameters": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "center": {
+                "description": "[lon,lat]",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "zoom": {
+                "default": 15,
+                "maximum": 22,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "center",
+              "zoom"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "bbox": {
+                "description": "[minLon,minLat,maxLon,maxLat]",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              }
+            },
+            "required": [
+              "bbox"
+            ],
+            "type": "object"
+          }
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "open_animation_tool",
+      "description": "Open the Animation Tool pre-configured for a layer, time range, and region so the user can export a GIF or MP4 with one click.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["layer_name"],
+        "properties": {
+          "layer_name": { "type": "string", "minLength": 1, "description": "Display name of the layer to animate." },
+          "start_date": { "type": "string", "description": "Animation start date in ISO format (e.g. '2024-01-01')." },
+          "end_date": { "type": "string", "description": "Animation end date in ISO format (e.g. '2024-12-31')." },
+          "region": { "type": "string", "description": "Named geographic region or 'current view'." },
+          "format": { "type": "string", "enum": ["gif", "mp4"], "description": "Preferred export format (default: 'gif')." }
+        }
+      },
+      "modelParameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "layer_name": { "type": "string" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "region": { "type": "string" },
+          "format": { "type": "string" }
+        }
+      },
+      "execution": { "adapter": "custom", "ui": { "type": "open_animation_tool" } }
+    },
+    {
+      "name": "run_analysis",
+      "description": "Open the Analysis Tool for a layer and run an interactive chart analysis (time-series, histogram, or scatter plot) over a time range and region.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["layer_name"],
+        "properties": {
+          "layer_name": { "type": "string", "minLength": 1, "description": "Display name of the layer to analyze." },
+          "chart_type": { "type": "string", "enum": ["timeseries", "histogram", "scatterplot"], "description": "Type of analysis chart (default: 'timeseries')." },
+          "mode": { "type": "string", "enum": ["point", "bbox"], "description": "Spatial sampling mode (default: 'bbox')." },
+          "start_date": { "type": "string", "description": "Analysis start date in ISO format." },
+          "end_date": { "type": "string", "description": "Analysis end date in ISO format." },
+          "region": { "type": "string", "description": "Named geographic region or 'current view'." }
+        }
+      },
+      "modelParameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "layer_name": { "type": "string" },
+          "chart_type": { "type": "string" },
+          "mode": { "type": "string" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "region": { "type": "string" }
+        }
+      },
+      "execution": { "adapter": "custom", "ui": { "type": "run_analysis" } }
+    }
+  ],
+  "uiProfiles": {
+    "anomaly_detection": {
+      "kind": "render_anomaly_detection"
+    },
+    "change_detection": {
+      "kind": "render_change_detection"
+    },
+    "contour_overlay": {
+      "kind": "render_contour_overlay"
+    },
+    "data_export": {
+      "kind": "render_data_export"
+    },
+    "highlight_clear": {
+      "kind": "highlight_clear"
+    },
+    "highlight_opacity": {
+      "kind": "highlight_opacity"
+    },
+    "highlight_toggle": {
+      "kind": "highlight_toggle"
+    },
+    "layer_difference": {
+      "kind": "render_layer_difference"
+    },
+    "layer_information": {
+      "kind": "render_layer_information"
+    },
+    "layer_mean": {
+      "kind": "render_layer_mean"
+    },
+    "layer_summary": {
+      "kind": "render_layer_summary"
+    },
+    "layers_line": {
+      "kind": "render_layers_line"
+    },
+    "list_analyzable_layers": {
+      "kind": "list_analyzable_layers"
+    },
+    "mmgis_overview": {
+      "kind": "render_text_with_citation"
+    },
+    "multilayer_statistics": {
+      "kind": "render_multilayer_statistics"
+    },
+    "opacity": {
+      "kind": "set_opacity"
+    },
+    "spatial_statistics": {
+      "kind": "render_spatial_statistics"
+    },
+    "temporal_trends": {
+      "kind": "render_temporal_trends"
+    },
+    "threshold_highlight": {
+      "kind": "render_threshold_highlight"
+    },
+    "toggle": {
+      "kind": "toggle_visibility"
+    },
+    "web_search_suggest": {
+      "kind": "render_links_summary"
+    },
+    "zoom_view": {
+      "kind": "zoom_view"
+    },
+    "open_animation_tool": {
+      "kind": "render_open_animation_tool"
+    },
+    "run_analysis": {
+      "kind": "render_run_analysis"
+    }
+  },
+  "version": "1.0.0"
+}
