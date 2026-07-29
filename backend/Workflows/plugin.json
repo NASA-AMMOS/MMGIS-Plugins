@@ -1,0 +1,23 @@
+{
+  "uuid": "8363f9c3-0c99-40aa-b401-e934f5199d7b",
+  "id": "official-workflows",
+  "name": "Workflows",
+  "display_name": "Workflows History",
+  "aliases": [
+    "workflows-history"
+  ],
+  "version": "5.2.18-20260722",
+  "type": "backend",
+  "tier": "experimental",
+  "overridable": true,
+  "routes": {
+    "prefix": "/api/workflows-history",
+    "auth": "user"
+  },
+  "author": "NASA-AMMOS/MMGIS-Plugins",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/NASA-AMMOS/MMGIS-Plugins",
+  "engines": {
+    "mmgis": ">=5.2.0"
+  }
+}

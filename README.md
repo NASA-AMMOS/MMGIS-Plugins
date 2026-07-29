@@ -26,6 +26,7 @@ npm run build
 | Chemistry | tool    | official     | Display chemistry percentages via graphs of a clicked point.                             |                                    |
 | Isochrone | tool    | official     | Find the range of locations accessible to an explorer within a given time                |                                    |
 | Segment   | tool    | experimental | Segment map features using SAM3 AI model with text prompts.                              | Backend server not yet released.  |
+| Workflows | tool, backend | experimental | Submit jobs to an external workflows API and add completed runs' outputs as map layers. | Requires an external workflows API; set its base URL in the tool's configuration. |
 
 ## Plugin Tiers
 
