@@ -289,6 +289,8 @@ let setup = {
     s.app.get(
       s.ROOT_PATH + "/api/agent/tools",
       s.checkHeadersCodeInjection,
+      s.ensureUser(), // ensureUser is a factory — call it
+      s.stopGuests, // stopGuests is the middleware itself (not a factory)
       s.setContentType,
       (req, res) => {
         res.status(200).json(req.app.locals.agentToolRegistry || { tools: [] });
@@ -298,6 +300,8 @@ let setup = {
     s.app.use(
       s.ROOT_PATH + "/api/agent",
       s.checkHeadersCodeInjection,
+      s.ensureUser(), // ensureUser is a factory — call it
+      s.stopGuests, // stopGuests is the middleware itself (not a factory)
       s.setContentType,
       router,
     );
