@@ -784,12 +784,18 @@ router.post("/", computeLimiter, express.json(), async function (req, res) {
     const citations = Array.isArray(result.citations) ? result.citations : [];
     const actions = result.actions.map((action) => validateAction(action, req));
 
-    const planList = actions.map((a) => a.tool).join(", ") || "(none)";
-    const planText = `Planned: ${planList}.`;
-
+    // planWithProvider() (provider.js) already guarantees a non-empty, readable
+    // `reply` — describing planned actions in plain language when the model
+    // omitted one, or a fallback message when there was nothing to plan. Only
+    // append the raw "Planned: ..." trace as a last-resort safety net so the
+    // assistant message can never end up empty even if that guarantee is
+    // ever violated upstream.
     const segments = [];
     if (reply) segments.push(reply);
-    if (planText) segments.push(planText);
+    if (!reply) {
+      const planList = actions.map((a) => a.tool).join(", ") || "(none)";
+      segments.push(`Planned: ${planList}.`);
+    }
     const text = segments.join("\n\n");
 
     const debug = {

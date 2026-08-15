@@ -299,6 +299,24 @@ function fallbackMessage(toolOptions = {}) {
   return `I'm sorry, I can't perform that operation. Here are the available tools: ${list}.`;
 }
 
+// The model's few-shot examples intentionally omit "reply" for purely
+// action-driven requests (e.g. "list layers" -> {"actions":[...]} with no
+// reply). Never fall back to the raw JSON plan text in that case — describe
+// the planned actions in plain language instead.
+function describeActionsReply(actions) {
+  if (!Array.isArray(actions) || actions.length === 0) return "";
+  const uniqueTools = [...new Set(actions.map((a) => a.tool))];
+  return `Running ${uniqueTools.join(", ")}.`;
+}
+
+function resolveReplyText(plan, actions, toolOptions) {
+  if (typeof plan?.reply === "string" && plan.reply.trim().length > 0) {
+    return plan.reply.trim();
+  }
+  const describedActions = describeActionsReply(actions);
+  return describedActions || fallbackMessage(toolOptions);
+}
+
 async function planWithProvider(message, context = {}, { threadId, registry, toolNames } = {}) {
   const toolOptions = { registry, toolNames };
   const prompt = buildPrompt(message, context, toolOptions);
@@ -328,13 +346,11 @@ async function planWithProvider(message, context = {}, { threadId, registry, too
 
       const plan = parseAgentPlan(rawAssistantText);
       const actions = normalizeActions(plan.actions, toolOptions);
-      let reply =
-        typeof plan.reply === "string" && plan.reply.trim().length > 0
-          ? plan.reply.trim()
-          : rawAssistantText.trim();
+      const usedFallback =
+        actions.length === 0 &&
+        !(typeof plan.reply === "string" && plan.reply.trim().length > 0);
+      const reply = resolveReplyText(plan, actions, toolOptions);
       const citations = normalizeCitations(plan.citations);
-      const usedFallback = actions.length === 0 && (!reply || reply.length === 0);
-      if (usedFallback) reply = fallbackMessage(toolOptions);
 
       return {
         actions,
@@ -365,13 +381,11 @@ async function planWithProvider(message, context = {}, { threadId, registry, too
 
     const plan = parseAgentPlan(rawAssistantText);
     const actions = normalizeActions(plan.actions, toolOptions);
-    let reply =
-      typeof plan.reply === "string" && plan.reply.trim().length > 0
-        ? plan.reply.trim()
-        : rawAssistantText.trim();
+    const usedFallback =
+      actions.length === 0 &&
+      !(typeof plan.reply === "string" && plan.reply.trim().length > 0);
+    const reply = resolveReplyText(plan, actions, toolOptions);
     const citations = normalizeCitations(plan.citations);
-    const usedFallback = actions.length === 0 && (!reply || reply.length === 0);
-    if (usedFallback) reply = fallbackMessage(toolOptions);
 
     return {
       actions,
@@ -446,10 +460,7 @@ async function* streamWithProvider(message, context = {}, { threadId, registry, 
           try {
             const plan = parseAgentPlan(fullText);
             const actions = normalizeActions(plan.actions, toolOptions);
-            const reply =
-              typeof plan.reply === "string" && plan.reply.trim().length > 0
-                ? plan.reply.trim()
-                : fullText.trim();
+            const reply = resolveReplyText(plan, actions, toolOptions);
             const citations = normalizeCitations(plan.citations);
             yield {
               type: "plan",
@@ -500,10 +511,7 @@ async function* streamWithProvider(message, context = {}, { threadId, registry, 
     try {
       const plan = parseAgentPlan(fullText);
       const actions = normalizeActions(plan.actions, toolOptions);
-      const reply =
-        typeof plan.reply === "string" && plan.reply.trim().length > 0
-          ? plan.reply.trim()
-          : fullText.trim();
+      const reply = resolveReplyText(plan, actions, toolOptions);
       const citations = normalizeCitations(plan.citations);
       yield {
         type: "plan",
@@ -525,4 +533,14 @@ async function* streamWithProvider(message, context = {}, { threadId, registry, 
   }
 }
 
-module.exports = { planWithProvider, streamWithProvider, haveAzureEnv, listProviderTools };
+module.exports = {
+  planWithProvider,
+  streamWithProvider,
+  haveAzureEnv,
+  listProviderTools,
+  parseAgentPlan,
+  normalizeActions,
+  resolveReplyText,
+  describeActionsReply,
+  fallbackMessage,
+};

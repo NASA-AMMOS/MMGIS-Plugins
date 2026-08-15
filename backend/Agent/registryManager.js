@@ -17,17 +17,25 @@ function loadFileRegistry() {
 async function seedFromFile() {
   const registry = loadFileRegistry();
   for (const tool of registry.tools || []) {
-    await AgentTool.findOrCreate({
+    const fields = {
+      description: tool.description || "",
+      execution: tool.execution || {},
+      modelParameters: tool.modelParameters || {},
+      parameters: tool.parameters || {},
+    };
+    const [row, created] = await AgentTool.findOrCreate({
       where: { name: tool.name },
-      defaults: {
-        description: tool.description || "",
-        execution: tool.execution || {},
-        modelParameters: tool.modelParameters || {},
-        parameters: tool.parameters || {},
-        source: "file",
-        enabled: true,
-      },
+      defaults: { ...fields, source: "file", enabled: true },
     });
+    // Keep file-seeded rows in sync with tool-registry.json on every boot —
+    // findOrCreate alone only inserts, so edits to the file (renamed
+    // execution.ui.type, fixed description, new parameters, etc.) would
+    // otherwise never reach a database that was seeded before the edit.
+    // Rows an admin created/edited directly (source !== "file") are left
+    // alone, and `enabled` is never overwritten here.
+    if (!created && row.source === "file") {
+      await row.update(fields);
+    }
   }
 }
 

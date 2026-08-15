@@ -41,6 +41,7 @@ import {
     calculateLocalThresholdMask,
     logLocalAnalyticsEvent,
 } from './localAnalytics'
+import { isNonSelectableLayerName } from './nonSelectableLayers'
 
 const DEFAULT_AREA_PRESETS = {
     'beaufort sea': { label: 'Beaufort Sea', bbox: [-160, 70, -120, 76] },
@@ -976,15 +977,34 @@ async function searchLayerInformation(layerName, originalQuery) {
 }
 
 
-export async function render_layers_line() {
-    const items = buildLayerIndex()
+function isUserSelectableLayer(item) {
+    return !isNonSelectableLayerName(item.displayName || item.name)
+}
+
+// Pure builder — derives the listing entirely from the live layer index
+// (i.e. the current mission's actual configuration), never a hardcoded
+// name list. Shared by the LLM-driven tool renderer below and by
+// AgentChatTool.js's local "list layers" fast-path, which calls this
+// directly (bypassing appendLine) so the text can become the assistant's
+// primary reply instead of a secondary note.
+export function buildLayersLineText() {
+    const items = buildLayerIndex().filter(isUserSelectableLayer)
     if (!items.length) {
         throw new Error('No layers available to list.')
     }
-    const summaryLines = items.map(
-        (item) => `- ${item.displayName} (${item.visible ? 'on' : 'off'})`
-    )
-    appendLine(`Layers:\n${summaryLines.join('\n')}`)
+    const lines = items.map((item, index) => {
+        const timeEnabled = item.config?.time?.enabled === true
+        const invariant = timeEnabled ? '' : ', time-invariant'
+        return `${index + 1}. ${item.displayName} — ${
+            item.visible ? 'visible' : 'hidden'
+        }${invariant}.`
+    })
+    return `Layers:\n${lines.join('\n')}`
+}
+
+export async function render_layers_line() {
+    const text = buildLayersLineText()
+    appendLine(text)
 }
 
 export async function render_text_with_citation(_ctx, payload) {
@@ -2765,67 +2785,89 @@ export async function render_data_export(_ctx, payload) {
     }
 }
 
+// Pure builder — classifies analyzability from the live layer config
+// (STAC collection / COG / local-tile-server data vs. plain reference
+// imagery), never a hardcoded layer list. Shared by the LLM-driven tool
+// renderer below and by AgentChatTool.js's local "which layers can I
+// analyze" fast-path, which calls this directly (bypassing appendLine).
+export function buildAnalyzableLayersText() {
+    const index = buildLayerIndex().filter(isUserSelectableLayer)
+    const dataLayers = []
+    const referenceLayers = []
+
+    for (const item of index) {
+        const cfg = item.config || item.layer?.config || item.layer || {}
+        const name = item.displayName || item.name || ''
+        const url = (cfg.url || cfg.source || '').toLowerCase()
+        const srcType = (cfg.sourceType || '').toLowerCase()
+        const layerType = (cfg.type || '').toLowerCase()
+
+        // Skip header/group nodes
+        if (layerType === 'header') continue
+
+        // Determine if this is a data layer (analyzable) or reference layer
+        const isStac = srcType === 'stac-collection' || url.startsWith('stac-collection:')
+        const isCog = url.includes('.tif') || url.includes('cog:') || srcType === 'cog'
+        const hasLocalData = cfg.throughTileServer === true
+        const isTimeSeries = cfg.time?.enabled === true
+
+        if (isStac || isCog || hasLocalData) {
+            const details = []
+            if (isStac) details.push('STAC collection')
+            if (isCog) details.push('COG/GeoTIFF')
+            details.push(isTimeSeries ? 'time-enabled' : 'time-invariant')
+            if (cfg.cogUnits) details.push(`units: ${cfg.cogUnits}`)
+            if (cfg.cogMin != null && cfg.cogMax != null) {
+                details.push(`range: ${cfg.cogMin}-${cfg.cogMax}`)
+            }
+            dataLayers.push({ name, details: details.join(', '), visible: item.visible })
+        } else {
+            referenceLayers.push({ name, visible: item.visible })
+        }
+    }
+
+    const lines = []
+    const selected = dataLayers.filter((l) => l.visible)
+
+    if (selected.length === 1) {
+        lines.push(`**${selected[0].name}** is currently selected and can be analyzed.`)
+        lines.push('')
+    } else if (selected.length > 1) {
+        lines.push(
+            `${selected.length} analyzable layers are currently selected: ${selected
+                .map((l) => `**${l.name}**`)
+                .join(', ')}.`,
+        )
+        lines.push('')
+    }
+
+    if (dataLayers.length > 0) {
+        lines.push(`**Data Layers (${dataLayers.length})** — support statistics, difference, and analysis:`)
+        dataLayers.forEach((l, index) => {
+            const vis = l.visible ? 'visible' : 'hidden'
+            lines.push(`${index + 1}. **${l.name}** — ${vis}, ${l.details}.`)
+        })
+    } else {
+        lines.push('No analyzable data layers found in the current configuration.')
+    }
+
+    if (referenceLayers.length > 0) {
+        lines.push('')
+        lines.push(`**Reference Layers (${referenceLayers.length})** — visualization only:`)
+        referenceLayers.forEach((l, index) => {
+            const vis = l.visible ? 'visible' : 'hidden'
+            lines.push(`${index + 1}. ${l.name} — ${vis}.`)
+        })
+    }
+
+    return lines.join('\n')
+}
+
 export async function list_analyzable_layers(_ctx, payload) {
     try {
-        const index = buildLayerIndex()
-        const dataLayers = []
-        const referenceLayers = []
-
-        for (const item of index) {
-            const cfg = item.config || item.layer?.config || item.layer || {}
-            const name = item.displayName || item.name || ''
-            const url = (cfg.url || cfg.source || '').toLowerCase()
-            const srcType = (cfg.sourceType || '').toLowerCase()
-            const layerType = (cfg.type || '').toLowerCase()
-
-            // Skip header/group nodes
-            if (layerType === 'header') continue
-
-            // Determine if this is a data layer (analyzable) or reference layer
-            const isStac = srcType === 'stac-collection' || url.startsWith('stac-collection:')
-            const isCog = url.includes('.tif') || url.includes('cog:') || srcType === 'cog'
-            const hasLocalData = cfg.throughTileServer === true
-            const isTimeSeries = cfg.time?.enabled === true
-
-            if (isStac || isCog || hasLocalData) {
-                const details = []
-                if (isStac) details.push('STAC collection')
-                if (isCog) details.push('COG/GeoTIFF')
-                if (isTimeSeries) details.push('time-enabled')
-                if (cfg.cogUnits) details.push(`units: ${cfg.cogUnits}`)
-                if (cfg.cogMin != null && cfg.cogMax != null) {
-                    details.push(`range: ${cfg.cogMin}-${cfg.cogMax}`)
-                }
-                dataLayers.push({ name, details: details.join(', '), visible: item.visible })
-            } else {
-                referenceLayers.push({ name, visible: item.visible })
-            }
-        }
-
-        const lines = []
-
-        if (dataLayers.length > 0) {
-            lines.push(`**Data Layers (${dataLayers.length})** — support statistics, difference, and analysis:`)
-            dataLayers.forEach(l => {
-                const vis = l.visible ? 'visible' : 'hidden'
-                lines.push(`- **${l.name}** (${vis}) — ${l.details}`)
-            })
-        } else {
-            lines.push('No analyzable data layers found in the current configuration.')
-        }
-
-        if (referenceLayers.length > 0) {
-            lines.push('')
-            lines.push(`**Reference Layers (${referenceLayers.length})** — visualization only:`)
-            referenceLayers.forEach(l => {
-                lines.push(`- ${l.name}`)
-            })
-        }
-
-        const output = lines.join('\n')
+        const output = buildAnalyzableLayersText()
         appendLine(output)
         return output
-
     } catch (error) {
         const errorMsg = `Unable to list analyzable layers: ${error?.message || error}`
         appendLine(errorMsg)
