@@ -1,7 +1,7 @@
 {
   "uuid": "54820d32-93b3-4cd9-9f78-73941ea70534",
   "id": "official-analysis",
-  "version": "5.2.0-20260617",
+  "version": "5.2.1-20260818",
   "type": "tool",
   "tier": "experimental",
   "engines": { "mmgis": ">=5.2.0" },

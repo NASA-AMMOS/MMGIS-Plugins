@@ -8,6 +8,8 @@ import Map_ from '@basics/Map_/Map_'
 import Help from '@basics/UserInterface_/components/Help/Help'
 import TimeControl from '@basics/TimeControl_/TimeControl'
 
+import { registerAnalysisCopilotAction } from './copilotAction'
+
 import './AnalysisTool.css'
 
 const helpKey = 'AnalysisTool'
@@ -286,6 +288,8 @@ let AnalysisTool = {
         selectedPoints: [], // Array of {id, lat, lon, properties, layerId} objects
         markers: [], // Visual markers for selected points
     },
+    copilotActionRegistration: null,
+    copilotPanelOpen: false,
     initialize: function () {
         //Get tool variables
         const toolVars = L_.getToolVars('analysis') || {}
@@ -300,17 +304,41 @@ let AnalysisTool = {
         if (!this.apiBaseUrl) {
             console.warn('Analysis Tool: API Base URL not configured. Please configure it in the mission settings.')
         }
+        this.registerCopilotAction()
     },
     finalize: function () {
-        // Any finalization logic can go here
+        // Retry after all tools initialize in case mmgisAPI was published late.
+        this.registerCopilotAction()
     },
     make: function (t, fromInit) {
         this.MMGISInterface = new interfaceWithMMGIS(fromInit)
+        this.copilotPanelOpen = true
+        this.registerCopilotAction()
     },
     destroy: function () {
+        this.copilotPanelOpen = false
         // Clean up all map handlers and drawing state
         this.cleanupMapHandlers()
         this.MMGISInterface.separateFromMMGIS()
+    },
+    registerCopilotAction: function () {
+        if (this.copilotActionRegistration) {
+            return this.copilotActionRegistration
+        }
+        const api = window.mmgisAPI
+        try {
+            this.copilotActionRegistration = registerAnalysisCopilotAction(
+                api,
+                this
+            )
+        } catch (error) {
+            console.warn(
+                'Analysis Tool: Copilot action registration was unavailable.',
+                error
+            )
+            this.copilotActionRegistration = null
+        }
+        return this.copilotActionRegistration
     },
     getUrlString: function () {
         return ''
