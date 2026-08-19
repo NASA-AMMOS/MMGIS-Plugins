@@ -8,26 +8,56 @@
 import L_ from '@basics/Layers_/Layers_'
 import TimeControl from '@basics/TimeControl_/TimeControl'
 import * as d3 from 'd3'
-import RENDERERS, {
-    fast_visible_layers_time as fastVisibleLayersTime,
-} from './renderers'
+import RENDERERS from './renderers'
+import { getLayerTimeMetadata, formatLayerTimeAnnouncement } from './timeUtils'
+import { normalizeLayerText } from './layerResolver'
 import {
-    getLayerTimeMetadata,
-    formatLayerTimeAnnouncement,
-} from './timeUtils'
-import {
-    normalizeLayerText,
-    resolveLayerSelection,
-} from './layerResolver'
+    finalizePreparedAction,
+    prepareActionLayerArguments,
+} from './actionArgumentPolicy'
+import { safeCitationUrl } from './safeUrl'
+import { runConversationTurn } from './conversationTurn'
+import { scopedAgentStorageKey, discardUnscopedAgentState } from './storageKeys'
 import { getCurrentMission } from './rendererUtils'
+import {
+    getConfiguredDemoQueries,
+    getCopilotSuggestionPool as buildSuggestionPool,
+    buildContextualSuggestions,
+    getSuggestionChipRange,
+    sanitizeDemoQueries,
+} from './suggestions'
+import {
+    assessLayerAnalysisCompatibility,
+    buildAnalysisCatalog,
+} from './analysisCompatibility'
+import {
+    buildAgentApiUrl,
+    normalizeAgentResponse,
+    createToolResult,
+    normalizeRendererResult,
+    resolveFinalAssistantText,
+    userFacingAgentError,
+    sanitizeErrorMessage,
+    sanitizeToolData,
+    buildAgentHistory,
+} from './agentProtocol'
+import {
+    listRegisteredCopilotActions,
+    executeRegisteredCopilotAction,
+    isSafeMmgisApiMethod,
+    mergeToolRegistries,
+    toRuntimeCapabilityDescriptor,
+    verifyMmgisFacadeResult,
+} from './runtimeActions'
 import './AgentChatTool.css'
 
 function agentApiUrl(path = '') {
-    const base = `${window.mmgisglobal.ROOT_PATH || ''}/api/agent${path}`
-    const mission = getCurrentMission()
-    if (!mission) return base
-    const sep = base.includes('?') ? '&' : '?'
-    return `${base}${sep}mission=${encodeURIComponent(mission)}`
+    return buildAgentApiUrl({
+        configuredBase: AgentChatTool.agentApiBase,
+        rootPath: window.mmgisglobal?.ROOT_PATH || '',
+        path,
+        mission: getCurrentMission(),
+    })
 }
 const HISTORY_KEY = 'mmgis.agent.chat.history.v1'
 const CONVERSATION_ID_KEY = 'mmgis.agent.chat.conversationId'
@@ -37,114 +67,9 @@ const OVERLAY_ID = 'mmgis-agentchat-overlay'
 const PANEL_ID = 'mmgis-agentchat-panel'
 const TOPBAR_LAUNCHER_ID = 'mmgisCopilotTopbarButton'
 const TOPBAR_WRAPPER_ID = 'mmgisCopilotTopbarWrapper'
-const DEFAULT_DEMO_QUERIES = [
-    'What is MMGIS?',
-    'List layers',
-    'Which layers can I analyze?',
-    'Show statistics of the first visible layer',
-    'Move the time slider to the latest date',
-    'Zoom to the current area of interest',
-]
-// Base suggestions that work regardless of layers
-const BASE_COPILOT_SUGGESTIONS = [
-    'List layers',
-    'Which layers can I analyze?',
-    'Show analyzable layers',
-    'Tell me about MMGIS',
-    'What time range is available for the current layer?',
-    'Move the time slider to the latest date',
-    'Set time to January 2024',
-    'Show statistics of the first visible data layer',
-    'Highlight areas where the current layer exceeds its average value',
-]
-const ZOOM_SUGGESTION_REGIONS = [
-    'Arctic Ocean',
-    'Beaufort Sea',
-    'Chukchi Sea',
-    'Greenland Sea',
-    'Laptev Sea',
-]
-const ZOOM_SUGGESTION_LEVELS = [3, 4, 5, 6, 7]
-const COPILOT_SUGGESTION_CHIP_RANGE = { min: 5, max: 8 }
-const LOCAL_REGION_VIEWS = {
-    'point barrow': { lat: 71.3875, lon: -156.4797, zoom: 6 },
-    barrow: { lat: 71.3875, lon: -156.4797, zoom: 6 },
-    'beaufort sea': { lat: 73.5, lon: -146, zoom: 5 },
-    'chukchi sea': { lat: 70.5, lon: -166, zoom: 5 },
-    'arctic ocean': { lat: 78.5, lon: -150, zoom: 3 },
-}
-
-function getCopilotSuggestionPool() {
-    const zoomSuggestions = buildZoomSuggestions()
-    const dynamicLayerSuggestions = buildDynamicLayerSuggestions()
-    const merged = [...BASE_COPILOT_SUGGESTIONS, ...zoomSuggestions, ...dynamicLayerSuggestions]
-    return Array.from(new Set(merged))
-}
-
-function buildDynamicLayerSuggestions() {
-    const suggestions = []
-    
-    // Try to get current layers from L_
-    if (typeof L_ !== 'undefined' && L_?.layers?.data) {
-        const layers = Object.values(L_.layers.data)
-        const layerNames = layers.map(l => l.display_name || l.displayName || l.name).filter(Boolean)
-        
-        // Build suggestions from whatever layers are actually present
-        const visibleLayers = layers
-            .filter(l => l.isVisible || l.visible)
-            .map(l => l.display_name || l.displayName || l.name)
-            .filter(Boolean)
-
-        const firstVisible = visibleLayers[0]
-        if (firstVisible) {
-            suggestions.push(`Show statistics for ${firstVisible}`)
-            suggestions.push(`Animate ${firstVisible} over time`)
-            suggestions.push(`Highlight areas where ${firstVisible} exceeds its average value`)
-        }
-
-        if (layerNames.length >= 2) {
-            suggestions.push(`What is the difference between ${layerNames[0]} and ${layerNames[1]}?`)
-        }
-
-        if (layerNames.length > 0) {
-            const pick = layerNames[Math.floor(Math.random() * layerNames.length)]
-            suggestions.push(`Calculate mean for ${pick}`)
-        }
-    }
-    
-    // Add fallback suggestions if no dynamic ones were generated
-    if (suggestions.length === 0) {
-        suggestions.push('Turn on a data layer to analyze')
-        suggestions.push('Show available data layers')
-    }
-    
-    return suggestions
-}
-
-function buildZoomSuggestions() {
-    if (!ZOOM_SUGGESTION_REGIONS.length) return []
-    return ZOOM_SUGGESTION_REGIONS.map((region) =>
-        formatZoomSuggestion(region)
-    ).filter(Boolean)
-}
-
-function formatZoomSuggestion(region) {
-    const trimmed = typeof region === 'string' ? region.trim() : ''
-    if (!trimmed) return null
-    const prefix = Math.random() < 0.5 ? 'Zoom into' : 'Zoom to'
-    const includeZoom =
-        ZOOM_SUGGESTION_LEVELS.length &&
-        Math.random() < 0.7
-    if (!includeZoom) {
-        return `${prefix} the ${trimmed}`
-    }
-    const level =
-        ZOOM_SUGGESTION_LEVELS[
-            Math.floor(Math.random() * ZOOM_SUGGESTION_LEVELS.length)
-        ]
-    const connector = Math.random() < 0.5 ? 'with' : 'at'
-    return `${prefix} the ${trimmed} ${connector} zoom level ${level}`
-}
+const DEFAULT_DEMO_QUERIES = getConfiguredDemoQueries()
+const COPILOT_SUGGESTION_CHIP_RANGE = getSuggestionChipRange()
+const MAX_TOOL_ROUNDS = 4
 
 // IMPORTANT: declare before any reference (avoid TDZ)
 
@@ -154,11 +79,14 @@ const AgentChatTool = {
     MMGISInterface: null,
     made: false,
     displayOnStart: false,
+    agentApiBase: '',
     initialize: function () {
         // Read by core's ToolController_ displayOnStart loop, which auto-opens
         // separated tools (including "custom") when this is true.
         const vars = L_.getToolVars('agentchat')
         this.displayOnStart = vars != null && vars.displayOnStart === true
+        this.agentApiBase =
+            typeof vars?.agentApiUrl === 'string' ? vars.agentApiUrl.trim() : ''
         hideToolbarButtons()
         ensureTopbarLauncher()
     },
@@ -201,6 +129,8 @@ function interfaceWithMMGIS() {
 
     const state = {
         toolRegistry: null,
+        staticToolRegistry: null,
+        runtimeActions: [],
         history: loadHistory(),
         transcriptEl: null,
         inputEl: null,
@@ -221,8 +151,20 @@ function interfaceWithMMGIS() {
         demoIndex: loadDemoIndex(DEFAULT_DEMO_QUERIES.length),
         lastUserQuery: '',
         conversationId: loadConversationId(),
+        storageMission: getCurrentMission() || '',
+    }
+    discardUnscopedAgentState(localStorage, [HISTORY_KEY, CONVERSATION_ID_KEY])
+
+    function getCopilotSuggestionPool() {
+        refreshLayerIndex()
+        return buildSuggestionPool(state.layerIndex, {
+            onState: L_?.layers?.on || null,
+            tools: state.toolRegistry?.tools || [],
+        })
     }
     window.mmgisAgentChat = window.mmgisAgentChat || {}
+    window.mmgisAgentChat.getAgentApiUrl = agentApiUrl
+    window.mmgisAgentChat.getToolRegistry = () => state.toolRegistry
     window.mmgisAgentChat.logLocalAnalytics = function (message) {
         const text = String(message)
         if (state.showDebugTraces) {
@@ -243,8 +185,6 @@ function interfaceWithMMGIS() {
         } catch (_) {}
         renderMessages()
     }
-
-    const LAYER_ARG_KEYS = ['name', 'layer_name', 'layer_a', 'layer_b']
 
     function normalizeName(value) {
         return normalizeLayerText(value)
@@ -372,12 +312,14 @@ function interfaceWithMMGIS() {
             if (!api) return []
             const configs = api.getLayerConfigs?.() || {}
             const visibles = api.getVisibleLayers?.() || {}
+            const layerOn = L_?.layers?.on || {}
             const liveLayers = api.getLayers?.() || {}
             const items = []
             const seen = new Set()
 
             Object.keys(configs).forEach((key) => {
                 const layer = configs[key] || {}
+                if (String(layer.type || '').toLowerCase() === 'header') return
                 const uuid = String(layer.uuid || key || layer.name || '')
                 if (!uuid || seen.has(uuid)) return
                 seen.add(uuid)
@@ -424,6 +366,8 @@ function interfaceWithMMGIS() {
                     normalized: normalizeName(raw),
                 }))
                 const isVisible = !!(
+                    layerOn[uuid] ||
+                    (layer.name && layerOn[layer.name]) ||
                     visibles[uuid] ||
                     visibles[key] ||
                     (layer.name && visibles[layer.name])
@@ -440,10 +384,7 @@ function interfaceWithMMGIS() {
                     groupPath,
                     tags: Array.isArray(layer.tags) ? layer.tags : [],
                     datasetId:
-                        layer.datasetId ||
-                        layer.dataset ||
-                        layer.id ||
-                        null,
+                        layer.datasetId || layer.dataset || layer.id || null,
                     config: layer,
                     liveInstance,
                     timeMeta,
@@ -459,104 +400,29 @@ function interfaceWithMMGIS() {
         state.layerIndex = buildLayerIndex()
     }
 
-    function findLayerMatch(value, userQuery = '') {
-        if (value == null) return null
-        if (!state.layerIndex.length) refreshLayerIndex()
-        const resolution = resolveLayerSelection({
-            requestedName: value,
-            userQuery,
+    function resolveActionLayerArgs(action, spec, userQuery = '') {
+        const resolution = prepareActionLayerArguments({
+            action,
+            spec,
             layers: state.layerIndex,
+            userQuery,
         })
-        if (resolution?.ambiguous) {
-            return {
-                ambiguous: true,
-                candidates: resolution.candidates || [],
-            }
-        }
-        return resolution?.match || null
-    }
-
-    function resolveActionLayerArgs(action, userQuery = '') {
-        const args = action?.args || {}
-        const targetKeys = Object.keys(args).filter((key) =>
-            LAYER_ARG_KEYS.includes(key)
-        )
-        if (!targetKeys.length) {
-            return {
-                prepared: { ...action },
-                matches: [],
-            }
-        }
-        const updatedArgs = { ...args }
-        const matches = []
-
-        for (const key of targetKeys) {
-            const value = updatedArgs[key]
-            if (typeof value !== 'string' || !value.trim()) continue
-            const match = findLayerMatch(value, userQuery)
-            if (match?.ambiguous) {
-                const candidates = match.candidates || []
-                // Auto-resolve when all candidates share the same normalized
-                // display name (duplicate config entries or API aliases).
-                const normalizedNames = candidates
-                    .map((c) => normalizeName(c.displayName || ''))
-                    .filter(Boolean)
-                const allSameName =
-                    normalizedNames.length > 0 &&
-                    normalizedNames.every((n) => n === normalizedNames[0])
-                if (allSameName && candidates.length > 0) {
-                    // Pick the highest-scored candidate (first in list)
-                    const best = candidates[0]
-                    // Re-resolve with the exact display name to get full match data
-                    const retry = findLayerMatch(best.displayName, userQuery)
-                    if (retry && !retry.ambiguous) {
-                        updatedArgs[key] = retry.resolved
-                        matches.push({ key, ...retry })
-                        continue
-                    }
-                }
-                const options = candidates
-                    .map((candidate) => {
-                        const name = candidate.displayName || '(unnamed layer)'
-                        const path = candidate.groupPath
-                            ? `${candidate.groupPath} > ${name}`
-                            : name
-                        return path
-                    })
-                    .filter(Boolean)
-                return {
-                    error: `Layer "${value}" is ambiguous. Choose one: ${options.join(' | ')}.`,
-                    key,
-                }
-            }
-            if (!match) {
-                return {
-                    error: `Could not find a layer matching "${value}".`,
-                    key,
-                }
-            }
-            updatedArgs[key] = match.resolved
-            matches.push({ key, ...match })
-            if (state.showDebugTraces) {
-                console.info('[AgentChat][layer_resolve]', {
-                    query: userQuery || state.lastUserQuery || '',
-                    requested: value,
+        if (resolution.error) return resolution
+        const matches = resolution.matches
+        if (state.showDebugTraces && matches.length) {
+            console.info('[AgentChat][layer_resolve]', {
+                query: userQuery || state.lastUserQuery || '',
+                matches: matches.map((match) => ({
+                    key: match.key,
+                    requested: match.requested,
                     resolved: match.resolved,
                     layerId: match.uuid,
                     groupPath: match.groupPath || '',
-                    layerUrl: match.layer?.config?.url || '',
-                })
-            }
+                })),
+            })
         }
 
-        return {
-            prepared: {
-                ...action,
-                args: updatedArgs,
-                __layerMatches: matches,
-            },
-            matches,
-        }
+        return finalizePreparedAction(action, resolution)
     }
 
     // Initialize UI only (no external assets/styles)
@@ -610,6 +476,22 @@ function interfaceWithMMGIS() {
         listenForToolRegistryChanges()
 
         renderMessages()
+        // Runtime actions can be registered after the panel module loads. The
+        // first welcome render must not permanently cache suggestions that
+        // were built before those capabilities were discoverable.
+        ensureRegistry({ refreshRuntime: true })
+            .then(() => {
+                state.welcomeSuggestions = null
+                state.contextualSuggestions = null
+                state.contextualSuggestionsAt = null
+                renderMessages()
+            })
+            .catch((error) =>
+                console.error(
+                    'AgentChat initial capability discovery failed',
+                    error
+                )
+            )
         scrollTranscript()
         initDragAndResize(overlay, panel)
         attachGlobalKeys()
@@ -843,142 +725,11 @@ function interfaceWithMMGIS() {
         window.__agentChatKeyHandler = onKey
     }
 
-    async function tryHandleLocalCommand(message) {
-        const overview = detectMmgisOverviewIntent(message)
-        if (overview) return handleMmgisOverviewIntent()
-
-        const zoomIntent = detectZoomRegionIntent(message)
-        if (zoomIntent) {
-            const handled = handleZoomRegionIntent(zoomIntent)
-            if (handled) return handled
-        }
-
-        const intent = detectFastTimeIntent(message)
-        if (!intent) return null
-        try {
-            const payload = { time_query: intent.query }
-            if (intent.special) payload.special = intent.special
-            const result = await fastVisibleLayersTime(payload)
-            const reply =
-                result?.lines?.length && Array.isArray(result.lines)
-                    ? result.lines.join('\n')
-                    : 'Time updated.'
-            return { reply }
-        } catch (err) {
-            return {
-                reply:
-                    err?.message ||
-                    'Unable to process that time command locally. Please try again.',
-            }
-        }
-    }
-
-    function detectMmgisOverviewIntent(text) {
-        if (!text || typeof text !== 'string') return false
-        const lower = text.trim().toLowerCase()
-        return (
-            lower === 'what is mmgis' ||
-            lower === 'what is mmgis?' ||
-            lower === 'tell me about mmgis' ||
-            lower === 'what does mmgis do'
-        )
-    }
-
-    function handleMmgisOverviewIntent() {
-        return {
-            reply:
-                'MMGIS (Multi-Mission Geographic Information System) is a web mapping platform for mission operations and geospatial analysis.\n' +
-                'It helps teams visualize layers in 2D/3D, explore time-enabled data, and collaborate around mission maps.',
-        }
-    }
-
-    function detectZoomRegionIntent(text) {
-        if (!text || typeof text !== 'string') return null
-        const trimmed = text.trim()
-        const match = trimmed.match(
-            /^(?:zoom|focus|go|fly)\s+(?:to|on|into)\s+(?:the\s+)?(.+)$/i
-        )
-        if (!match || !match[1]) return null
-        let region = match[1].trim()
-        let zoom = null
-        const zoomMatch = region.match(/\s+at\s+zoom(?:\s+level)?\s+(\d{1,2})$/i)
-        if (zoomMatch && zoomMatch[1]) {
-            const parsedZoom = Number(zoomMatch[1])
-            if (Number.isFinite(parsedZoom)) {
-                zoom = Math.max(0, Math.min(24, parsedZoom))
-                region = region.slice(0, zoomMatch.index).trim()
-            }
-        }
-        return { region, zoom }
-    }
-
-    function normalizeRegionKey(value) {
-        return String(value || '')
-            .toLowerCase()
-            .replace(/\b(region|area)\b/g, '')
-            .replace(/[^a-z0-9]+/g, ' ')
-            .trim()
-    }
-
-    function handleZoomRegionIntent(intent) {
-        const key = normalizeRegionKey(intent?.region)
-        if (!key) return null
-        const preset = LOCAL_REGION_VIEWS[key]
-        const map = window.mmgisAPI?.map
-        if (!preset || !map || typeof map.setView !== 'function') return null
-        const zoom =
-            Number.isFinite(intent?.zoom) && intent.zoom >= 0
-                ? intent.zoom
-                : preset.zoom
-        map.setView([preset.lat, preset.lon], zoom)
-        return {
-            reply: `Focused map on ${intent.region} at zoom level ${zoom}.`,
-        }
-    }
-
-    function detectFastTimeIntent(text) {
-        if (!text || typeof text !== 'string') return null
-        const trimmed = text.trim()
-        if (!trimmed) return null
-        const lower = trimmed.toLowerCase()
-        if (
-            /(latest|most recent|newest)\s+(time|date|timestamp)/.test(lower) ||
-            /(move|jump|go)\s+(?:to|toward)\s+the\s+(latest|newest)/.test(lower)
-        ) {
-            return { query: trimmed, special: 'latest' }
-        }
-        if (
-            /(earliest|first|oldest)\s+(time|date|timestamp)/.test(lower) ||
-            /(move|jump|go)\s+(?:to|toward)\s+the\s+(earliest|first|oldest)/.test(
-                lower
-            )
-        ) {
-            return { query: trimmed, special: 'earliest' }
-        }
-        const patterns = [
-            /(?:set|change|update|move)\s+(?:the\s+)?time(?:\s+(?:slider|control))?\s+(?:to|for)\s+(.+)/i,
-            /(?:go|jump)\s+(?:to|towards?)\s+(.+)/i,
-        ]
-        for (const pattern of patterns) {
-            const match = trimmed.match(pattern)
-            if (!match || !match[1]) continue
-            const candidate = match[1].trim()
-            if (
-                candidate &&
-                /(\d{2}|\d{4}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|'|spring|summer|fall|winter)/i.test(
-                    candidate
-                )
-            ) {
-                return { query: candidate }
-            }
-        }
-        return null
-    }
-
     // ————— Conversations ————————————————————————————————————————————————
 
     async function onSend(e) {
         e.preventDefault()
+        ensureMissionConversationState()
         const input = state.inputEl
         if (!input) return
         if (state.isThinking || input.hasAttribute('disabled')) return
@@ -1008,49 +759,80 @@ function interfaceWithMMGIS() {
         const requestId = beginThinking()
 
         try {
-            const handledLocally = await tryHandleLocalCommand(msg)
-            if (handledLocally) {
-                const entry = {
-                    id: uid(),
-                    role: 'assistant',
-                    text: handledLocally.reply || '',
-                    reply: handledLocally.reply || '',
-                    citations: [],
-                    actions: [],
-                    timestamp: new Date().toISOString(),
-                }
-                pushMessage(entry)
-                scrollTranscript()
-                return
-            }
-            const res = await callAgent(msg)
-            const entry = {
-                id: uid(),
-                role: 'assistant',
-                text: res?.text || '',
-                reply: res?.reply || res?.text || '',
-                citations: Array.isArray(res?.citations) ? res.citations : [],
-                actions: Array.isArray(res?.actions) ? res.actions : [],
-                debug: res?.debug || {},
-                originalQuery: msg,
-                timestamp: new Date().toISOString(),
-                notes: [],
-            }
-            pushMessage(entry)
-            scrollTranscript()
-
-            if (entry?.actions?.length) {
-                const performed = await exec(entry.actions, entry)
-                if (performed.length) {
-                    entry.performed = performed
-                    saveHistory()
-                    renderMessages()
+            let entry = null
+            const turn = await runConversationTurn({
+                originalMessage: msg,
+                requestInitial: () => callAgent(msg),
+                executeActions: (actions) => exec(actions, entry),
+                requestContinuation: (response, toolResults) =>
+                    continueAgent(msg, response, toolResults),
+                resolveFinalText: resolveFinalAssistantText,
+                maxRounds: MAX_TOOL_ROUNDS,
+                onInitialResponse: (res) => {
+                    const initialText =
+                        res?.reply ||
+                        res?.text ||
+                        res?.message ||
+                        'Working on that…'
+                    entry = {
+                        id: uid(),
+                        role: 'assistant',
+                        text: initialText,
+                        reply: initialText,
+                        citations: Array.isArray(res?.citations)
+                            ? res.citations
+                            : [],
+                        actions: [],
+                        debug: res?.debug || {},
+                        originalQuery: msg,
+                        timestamp: new Date().toISOString(),
+                        notes: [],
+                    }
+                    pushMessage(entry)
                     scrollTranscript()
+                },
+                onResponse: (res) => {
+                    if (entry && Array.isArray(res?.citations))
+                        entry.citations = res.citations
+                },
+            })
+            if (!entry)
+                throw new Error('Agent turn did not create an assistant entry.')
+            if (turn.continuationError) {
+                console.error(
+                    'AgentChat continuation failed',
+                    turn.continuationError
+                )
+                entry.debug = entry.debug || {}
+                entry.debug.continuationError = {
+                    code: turn.continuationError?.code || 'CONTINUATION_FAILED',
+                    message: sanitizeErrorMessage(turn.continuationError),
                 }
             }
+            entry.actions = turn.actions
+            entry.toolResults = turn.toolResults
+            entry.performed = turn.performed
+            entry.reply = turn.finalText
+            entry.text = turn.finalText
+            saveHistory()
+            renderMessages()
+            scrollTranscript()
         } catch (err) {
             console.error('AgentChat request failed', err)
-            pushSystem('Copilot request failed. Please try again.')
+            const message = userFacingAgentError(err)
+            pushMessage({
+                id: uid(),
+                role: 'assistant',
+                text: message,
+                reply: message,
+                citations: [],
+                actions: [],
+                timestamp: new Date().toISOString(),
+                debug: {
+                    reason: err?.code || 'client_error',
+                    clientError: sanitizeErrorMessage(err),
+                },
+            })
         } finally {
             endThinking(requestId)
             state.sendBtn?.removeAttribute('data-loading')
@@ -1060,92 +842,74 @@ function interfaceWithMMGIS() {
     }
 
     async function callAgent(message) {
-        try {
-            if (!getCurrentMission()) {
-                return {
-                    text: "Agent failed: No active mission. Open a mission in MMGIS first.",
-                    reply: "Agent failed: No active mission. Open a mission in MMGIS first.",
-                    actions: [],
-                    debug: { reason: 'missing_mission' },
-                }
-            }
-            const payload = { message }
-            if (state.conversationId) payload.conversationId = state.conversationId
-            const context = buildAgentContext()
-            if (context) payload.context = context
-            // Conversation history for the LLM. Last 12 turns, role + text only,
-            // capped at 1500 chars per entry to keep the prompt reasonable.
-            const recent = (state.history || []).slice(-12)
-            payload.history = recent
-                .filter((h) => h && (h.role === 'user' || h.role === 'assistant'))
-                .map((h) => ({
-                    role: h.role,
-                    content: String(h.reply || h.text || '').slice(0, 1500),
-                }))
-                .filter((h) => h.content)
-            const res = await fetch(agentApiUrl(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            })
-            const responsePayload = await res.json().catch(() => null)
-            if (!res.ok) {
-                const errorMsg =
-                    (responsePayload &&
-                        (responsePayload.error || responsePayload.message)) ||
-                    `Request failed with status ${res.status}`
-                const debug = {
-                    reason: 'server_error',
-                    status: res.status,
-                    serverError:
-                        responsePayload &&
-                        (responsePayload.error || responsePayload.message),
-                    serverStack: Array.isArray(responsePayload?.stack)
-                        ? responsePayload.stack
-                        : undefined,
-                    validationErrors: Array.isArray(
-                        responsePayload?.validationErrors
-                    )
-                        ? responsePayload.validationErrors
-                        : undefined,
-                }
-                return {
-                    text: `Agent failed: ${errorMsg}`,
-                    reply: `Agent failed: ${errorMsg}`,
-                    actions: [],
-                    debug,
-                }
-            }
-            // Track conversation ID from server
-            if (responsePayload?.conversationId) {
-                state.conversationId = responsePayload.conversationId
-                saveConversationId(state.conversationId)
-            }
-            if (responsePayload?.debug?.azure?.reason)
-                pushSystem(
-                    `Provider note: ${responsePayload.debug.azure.reason}`
-                )
-            return responsePayload
-        } catch (err) {
-            const messageText =
-                err && err.message ? err.message : 'Unknown error'
-            pushSystem(
-                'Error contacting the copilot service. Check your network or server logs.'
-            )
+        if (!getCurrentMission()) {
             return {
-                text: 'Agent is unavailable.',
-                reply: `Agent is unavailable: ${messageText}`,
+                reply: 'No active mission is open. Open an MMGIS mission and try again.',
                 actions: [],
-                debug: {
-                    reason: 'client_error',
-                    clientError: messageText,
-                    clientStack:
-                        typeof err?.stack === 'string'
-                            ? err.stack.split(/\r?\n/)
-                            : undefined,
-                },
+                debug: { reason: 'missing_mission' },
             }
         }
+        const payload = { message }
+        // Runtime plugin actions may register/unregister or change availability
+        // while MMGIS is open, so discover them fresh for every user turn.
+        state.toolRegistry = null
+        if (state.conversationId) payload.conversationId = state.conversationId
+        const context = await buildAgentContext()
+        if (context) payload.context = context
+        // The current user entry was already pushed for immediate rendering;
+        // omit it here because `message` is appended separately by the agent.
+        payload.history = buildAgentHistory(state.history, message)
+        return postAgent('', payload)
+    }
+
+    async function postAgent(path, payload) {
+        const res = await fetch(agentApiUrl(path), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        })
+        const responseText = await res.text()
+        let responsePayload = responseText
+        if (responseText.trim()) {
+            try {
+                responsePayload = JSON.parse(responseText)
+            } catch (_) {
+                // Plain text is a valid final continuation response.
+            }
+        } else {
+            responsePayload = null
+        }
+        const normalized = normalizeAgentResponse(responsePayload, {
+            ok: res.ok,
+            status: res.status,
+            contentType: res.headers.get('content-type') || '',
+        })
+        if (normalized.conversationId) {
+            state.conversationId = normalized.conversationId
+            saveConversationId(state.conversationId)
+        }
+        return normalized
+    }
+
+    function responseIdOf(response) {
+        return (
+            response?.responseId ||
+            response?.response_id ||
+            response?.requestId ||
+            response?.id ||
+            null
+        )
+    }
+
+    async function continueAgent(originalMessage, response, toolResults) {
+        return postAgent('/continue', {
+            conversationId:
+                state.conversationId || response?.conversationId || null,
+            responseId: responseIdOf(response),
+            originalMessage,
+            toolResults,
+            context: await buildAgentContext(),
+        })
     }
 
     function renderMessages() {
@@ -1156,10 +920,10 @@ function interfaceWithMMGIS() {
 
         const indicator = state.isThinking ? renderThinkingIndicator() : ''
         state.transcriptEl.innerHTML = html + indicator
-        
+
         // Always render suggestions
         renderSuggestions()
-        
+
         // Always scroll after rendering messages
         scrollTranscript()
     }
@@ -1170,7 +934,7 @@ function interfaceWithMMGIS() {
         const suggestions = state.history.length
             ? ensureContextualSuggestions()
             : ensureWelcomeSuggestions()
-            
+
         const chips = (suggestions?.chips || [])
             .map(
                 (cmd) => `
@@ -1184,7 +948,7 @@ function interfaceWithMMGIS() {
           </button>`
             )
             .join('')
-            
+
         state.suggestionsEl.innerHTML = chips
             ? `<div class="ac-suggest-label">Example queries:</div><div class="ac-suggest-grid" role="list">${chips}</div>`
             : ''
@@ -1217,8 +981,8 @@ function interfaceWithMMGIS() {
         const bubbleClass = isA
             ? 'ac-bubble-a'
             : isU
-            ? 'ac-bubble-u'
-            : 'ac-bubble-s'
+              ? 'ac-bubble-u'
+              : 'ac-bubble-s'
         const content = isA
             ? renderContent(entry.reply || entry.text || '')
             : renderContent(entry.text || '')
@@ -1257,7 +1021,8 @@ function interfaceWithMMGIS() {
                 const title =
                     (c && typeof c.title === 'string' && c.title) ||
                     `Source ${i + 1}`
-                const url = c && typeof c.url === 'string' ? attr(c.url) : null
+                const safeUrl = safeCitationUrl(c?.url)
+                const url = safeUrl ? attr(safeUrl) : null
                 const snippet =
                     (c && typeof c.snippet === 'string' && c.snippet) || ''
                 return `
@@ -1293,7 +1058,9 @@ function interfaceWithMMGIS() {
             blocks.push(
                 section(
                     'Planned actions',
-                    code(JSON.stringify(entry.actions, null, 2))
+                    code(
+                        JSON.stringify(sanitizeToolData(entry.actions), null, 2)
+                    )
                 )
             )
         }
@@ -1301,18 +1068,24 @@ function interfaceWithMMGIS() {
             blocks.push(
                 section(
                     'Performed',
-                    code(JSON.stringify(entry.performed, null, 2))
+                    code(
+                        JSON.stringify(
+                            sanitizeToolData(entry.performed),
+                            null,
+                            2
+                        )
+                    )
                 )
             )
         }
         if (entry.debug && typeof entry.debug === 'object') {
             const az = entry.debug.azure || {}
-            const diag = {
+            const diag = sanitizeToolData({
                 reason: entry.debug.reason,
                 azureStatus: az?.response?.status,
                 azureMessage: az?.message || az?.reason,
                 run: entry.debug.run,
-            }
+            })
             if (
                 diag.reason ||
                 diag.azureStatus ||
@@ -1327,7 +1100,7 @@ function interfaceWithMMGIS() {
                 blocks.push(
                     section(
                         'Server error',
-                        code(String(entry.debug.serverError))
+                        code(sanitizeErrorMessage(entry.debug.serverError))
                     )
                 )
             }
@@ -1337,8 +1110,10 @@ function interfaceWithMMGIS() {
             ) {
                 blocks.push(
                     section(
-                        'Server stacktrace',
-                        code(entry.debug.serverStack.join('\n'))
+                        'Server diagnostics',
+                        code(
+                            'A server stacktrace was recorded in backend logs.'
+                        )
                     )
                 )
             }
@@ -1350,7 +1125,11 @@ function interfaceWithMMGIS() {
                     section(
                         'Client failures',
                         code(
-                            JSON.stringify(entry.debug.clientFailures, null, 2)
+                            JSON.stringify(
+                                sanitizeToolData(entry.debug.clientFailures),
+                                null,
+                                2
+                            )
                         )
                     )
                 )
@@ -1364,7 +1143,7 @@ function interfaceWithMMGIS() {
                         'Validation errors',
                         code(
                             JSON.stringify(
-                                entry.debug.validationErrors,
+                                sanitizeToolData(entry.debug.validationErrors),
                                 null,
                                 2
                             )
@@ -1409,19 +1188,19 @@ function interfaceWithMMGIS() {
         if (!state.transcriptEl) {
             return
         }
-        
+
         const element = state.transcriptEl
-        
+
         // Simple scroll to bottom
         const scrollToBottom = () => {
             element.scrollTop = element.scrollHeight
         }
-        
+
         // Execute immediately and after DOM updates
         scrollToBottom()
         requestAnimationFrame(scrollToBottom)
     }
-    
+
     // Expose scroll function globally for renderers.js
     window.__mmgisAgentChatScroll = scrollTranscript
 
@@ -1591,6 +1370,7 @@ function interfaceWithMMGIS() {
                             if (msg.type === 'toolRegistryChanged') {
                                 // Invalidate cached registry and reload
                                 state.toolRegistry = null
+                                state.staticToolRegistry = null
                                 ensureRegistry()
                             }
                         } catch (_) {}
@@ -1604,23 +1384,52 @@ function interfaceWithMMGIS() {
         } catch (_) {}
     }
 
-    async function ensureRegistry() {
-        if (state.toolRegistry) return state.toolRegistry
-        try {
-            const res = await fetch(
-                window.mmgisglobal.ROOT_PATH + '/api/agent/tools',
-                {
+    async function ensureRegistry({ refreshRuntime = false } = {}) {
+        if (!state.staticToolRegistry) {
+            try {
+                const res = await fetch(agentApiUrl('/tools'), {
                     method: 'GET',
                     headers: { 'Content-Type': 'application/json' },
+                })
+                if (!res.ok) throw new Error('Failed to load tool registry')
+                const payload = await res.json()
+                if (payload?.status === 'failure') {
+                    throw new Error(
+                        payload.message ||
+                            payload.error ||
+                            'Tool registry reported a failure.'
+                    )
                 }
-            )
-            if (!res.ok) throw new Error('Failed to load tool registry')
-            state.toolRegistry = await res.json()
-        } catch {
-            pushSystem(
-                'Unable to load the tool registry. Some actions may be unavailable.'
-            )
-            state.toolRegistry = { tools: [] }
+                if (!payload || !Array.isArray(payload.tools))
+                    throw new Error('Tool registry response is invalid')
+                state.staticToolRegistry = payload
+            } catch (error) {
+                console.error('AgentChat tool registry load failed', error)
+                // Keep the cache empty so a transient startup, auth, or
+                // network failure is retried on the next request.
+                state.staticToolRegistry = null
+            }
+        }
+        if (!state.toolRegistry || refreshRuntime) {
+            try {
+                state.runtimeActions = await listRegisteredCopilotActions(
+                    window.mmgisAPI
+                )
+            } catch (error) {
+                console.error(
+                    'AgentChat runtime action discovery failed',
+                    error
+                )
+                state.runtimeActions = []
+            }
+        }
+        const registry = state.staticToolRegistry || { tools: [] }
+        state.toolRegistry = {
+            ...registry,
+            tools: mergeToolRegistries(
+                state.runtimeActions,
+                registry.tools || []
+            ),
         }
         return state.toolRegistry
     }
@@ -1631,12 +1440,13 @@ function interfaceWithMMGIS() {
         const map = new Map(
             (state.toolRegistry?.tools || []).map((t) => [t.name, t])
         )
-        const performed = []
+        const toolResults = []
         const queue = []
 
         for (const a of actions || []) {
             if (!a || typeof a !== 'object') continue
             const spec = map.get(a.tool)
+            const callId = a.callId || a.call_id || a.toolCallId || a.id || null
             if (!spec) {
                 const available = Array.from(map.keys())
                 const err = new Error(
@@ -1652,11 +1462,21 @@ function interfaceWithMMGIS() {
                     err,
                     { tool: a.tool, stage: 'registry_lookup' }
                 )
+                toolResults.push(
+                    createToolResult({
+                        tool: a.tool,
+                        callId,
+                        ok: false,
+                        message: err.message,
+                        errorCode: 'TOOL_NOT_REGISTERED',
+                    })
+                )
                 continue
             }
 
             const normalization = resolveActionLayerArgs(
                 a,
+                spec,
                 entry?.originalQuery || state.lastUserQuery || ''
             )
             if (normalization.error) {
@@ -1666,9 +1486,21 @@ function interfaceWithMMGIS() {
                     null,
                     { tool: a.tool, args: a.args, stage: 'layer_resolution' }
                 )
+                toolResults.push(
+                    createToolResult({
+                        tool: a.tool,
+                        callId,
+                        ok: false,
+                        message: normalization.error,
+                        errorCode: 'LAYER_RESOLUTION_FAILED',
+                    })
+                )
                 continue
             }
-            queue.push({ action: normalization.prepared, spec })
+            queue.push({
+                action: { ...normalization.prepared, callId },
+                spec,
+            })
         }
 
         for (const item of queue) {
@@ -1677,7 +1509,24 @@ function interfaceWithMMGIS() {
 
             if (x.adapter === 'mmgisAPI') {
                 const r = await execMmgisApi(x, a, entry)
-                if (r) performed.push(r)
+                toolResults.push(r)
+            } else if (x.adapter === 'pluginAction') {
+                const result = await executeRegisteredCopilotAction(
+                    window.mmgisAPI,
+                    {
+                        name: x.action || a.tool,
+                        callId: a.callId,
+                    },
+                    a.args || {},
+                    await buildAgentContext()
+                )
+                if (!result.ok) {
+                    addFailure(entry, result.message, null, {
+                        tool: a.tool,
+                        stage: 'plugin_action',
+                    })
+                }
+                toolResults.push({ ...result, tool: a.tool })
             } else if (x.adapter === 'custom') {
                 let pendingZoomUndo = null
                 if (a.tool === 'zoom_to' && window.mmgisAPI?.map) {
@@ -1692,23 +1541,48 @@ function interfaceWithMMGIS() {
                 }
                 const kind = x.ui?.type || null
                 if (kind && typeof RENDERERS[kind] === 'function') {
+                    const appendedLines = []
+                    const previousAppend = window.__mmgisAgentChatAppend
+                    window.__mmgisAgentChatAppend = (text) => {
+                        if (text != null && String(text).trim())
+                            appendedLines.push(String(text))
+                    }
                     try {
-                        await RENDERERS[kind]({}, a.args || {})
-                        if (pendingZoomUndo) pushUndo(pendingZoomUndo)
-                        performed.push({
-                            tool: a.tool,
-                            adapter: 'custom',
-                            renderer: kind,
-                        })
-                    } catch (e) {
-                        addFailure(
-                            entry,
-                            `Tool "${a.tool}" renderer "${kind}" failed: ${
-                                e?.message || 'Unknown error'
-                            }.`,
-                            e,
-                            { tool: a.tool, renderer: kind, args: a.args }
+                        const rawResult = await RENDERERS[kind](
+                            { originalMessage: entry?.originalQuery },
+                            a.args || {}
                         )
+                        const normalizedResult = normalizeRendererResult(
+                            a.tool,
+                            a.callId,
+                            rawResult,
+                            appendedLines
+                        )
+                        if (pendingZoomUndo && normalizedResult.ok)
+                            pushUndo(pendingZoomUndo)
+                        toolResults.push(normalizedResult)
+                    } catch (e) {
+                        console.error(`AgentChat renderer "${kind}" failed`, e)
+                        const safeMessage = sanitizeErrorMessage(
+                            e,
+                            `Tool "${a.tool}" could not be completed.`
+                        )
+                        addFailure(entry, safeMessage, e, {
+                            tool: a.tool,
+                            renderer: kind,
+                            args: a.args,
+                        })
+                        toolResults.push(
+                            createToolResult({
+                                tool: a.tool,
+                                callId: a.callId,
+                                ok: false,
+                                message: safeMessage,
+                                errorCode: e?.code || 'RENDERER_FAILED',
+                            })
+                        )
+                    } finally {
+                        window.__mmgisAgentChatAppend = previousAppend
                     }
                 } else {
                     const msg = kind
@@ -1720,10 +1594,36 @@ function interfaceWithMMGIS() {
                         null,
                         { tool: a.tool, renderer: kind }
                     )
+                    toolResults.push(
+                        createToolResult({
+                            tool: a.tool,
+                            callId: a.callId,
+                            ok: false,
+                            message: msg,
+                            errorCode: 'RENDERER_UNAVAILABLE',
+                        })
+                    )
                 }
+            } else {
+                const message = `Tool "${a.tool}" uses unsupported adapter "${
+                    x.adapter || 'missing'
+                }".`
+                addFailure(entry, message, null, {
+                    tool: a.tool,
+                    adapter: x.adapter,
+                })
+                toolResults.push(
+                    createToolResult({
+                        tool: a.tool,
+                        callId: a.callId,
+                        ok: false,
+                        message,
+                        errorCode: 'UNSUPPORTED_ADAPTER',
+                    })
+                )
             }
         }
-        return performed
+        return toolResults
     }
 
     async function execMmgisApi(desc, action, entry) {
@@ -1738,6 +1638,22 @@ function interfaceWithMMGIS() {
         const args = []
         const visibleBefore = window.mmgisAPI?.getVisibleLayers?.() || {}
 
+        if (!isSafeMmgisApiMethod(method)) {
+            const message = `Direct MMGIS API method "${method || 'missing'}" is not approved for Copilot execution.`
+            addFailure(entry, message, null, {
+                tool: action.tool,
+                method,
+                reason: 'unsafe_api_method',
+            })
+            return createToolResult({
+                tool: action.tool,
+                callId: action.callId,
+                ok: false,
+                message,
+                errorCode: 'UNSAFE_MMGIS_API_METHOD',
+            })
+        }
+
         for (const k of order) {
             if (
                 k === 'name' &&
@@ -1747,9 +1663,10 @@ function interfaceWithMMGIS() {
                 const id =
                     resolvedMatch?.uuid || resolveDisplayNameToId(displayName)
                 if (!id) {
+                    const message = `Layer "${displayName}" was not found.`
                     addFailure(
                         entry,
-                        `Cannot execute tool "${action.tool}": layer "${displayName}" not found.`,
+                        `Cannot execute tool "${action.tool}": ${message}`,
                         null,
                         {
                             tool: action.tool,
@@ -1758,7 +1675,13 @@ function interfaceWithMMGIS() {
                             reason: 'layer_not_found',
                         }
                     )
-                    return null
+                    return createToolResult({
+                        tool: action.tool,
+                        callId: action.callId,
+                        ok: false,
+                        message,
+                        errorCode: 'LAYER_NOT_FOUND',
+                    })
                 }
                 args.push(id)
             } else {
@@ -1793,9 +1716,40 @@ function interfaceWithMMGIS() {
         }
 
         const fn = window.mmgisAPI?.[method]
+        let apiResult = null
+        let verifiedResult = { ok: true, data: null }
         if (typeof fn === 'function') {
             try {
-                await fn.apply(window.mmgisAPI, args)
+                apiResult = await fn.apply(window.mmgisAPI, args)
+                const targetId = targetMatch?.uuid || args[0] || null
+                const targetName =
+                    targetMatch?.layer?.name || targetMatch?.resolved || null
+                verifiedResult = verifyMmgisFacadeResult({
+                    method,
+                    targetId,
+                    targetName,
+                    requestedVisible: action?.args?.visible,
+                    requestedOpacity: action?.args?.opacity,
+                    visibleLayers: window.mmgisAPI?.getVisibleLayers?.() || {},
+                    opacityByLayer: L_?.layers?.opacity || {},
+                    rawResult: apiResult,
+                })
+                if (!verifiedResult.ok) {
+                    addFailure(entry, verifiedResult.message, null, {
+                        tool: action.tool,
+                        method,
+                        args,
+                        verification: verifiedResult.data,
+                    })
+                    return createToolResult({
+                        tool: action.tool,
+                        callId: action.callId,
+                        ok: false,
+                        message: verifiedResult.message,
+                        data: verifiedResult.data,
+                        errorCode: verifiedResult.errorCode,
+                    })
+                }
                 if (pendingUndo) pushUndo(pendingUndo)
                 if (method === 'toggleLayer' && state.showDebugTraces) {
                     const visibleAfter =
@@ -1804,7 +1758,8 @@ function interfaceWithMMGIS() {
                         (key) => !!visibleAfter[key] !== !!visibleBefore[key]
                     )
                     console.info('[AgentChat][toggle_layer]', {
-                        query: entry?.originalQuery || state.lastUserQuery || '',
+                        query:
+                            entry?.originalQuery || state.lastUserQuery || '',
                         requestedLayer: displayName,
                         resolvedLayerName: targetMatch?.resolved || displayName,
                         resolvedLayerId: targetMatch?.uuid || args[0] || null,
@@ -1833,62 +1788,124 @@ function interfaceWithMMGIS() {
                     e,
                     { tool: action.tool, method, args }
                 )
-                return null
+                return createToolResult({
+                    tool: action.tool,
+                    callId: action.callId,
+                    ok: false,
+                    message: `Unable to ${action.tool.replace(/_/g, ' ')}: ${
+                        e?.message || 'Unknown error'
+                    }`,
+                    errorCode: e?.code || 'MMGIS_API_FAILED',
+                })
             }
         } else {
-            addFailure(entry, `API method "${method}" not available.`, null, {
+            const message = `MMGIS API method "${method}" is unavailable.`
+            addFailure(entry, message, null, {
                 tool: action.tool,
                 method,
                 args,
                 reason: 'missing_api_method',
             })
-            return null
+            return createToolResult({
+                tool: action.tool,
+                callId: action.callId,
+                ok: false,
+                message,
+                errorCode: 'MMGIS_API_UNAVAILABLE',
+            })
         }
 
-        return { tool: action.tool, adapter: 'mmgisAPI', method, args }
+        let message = `${action.tool.replace(/_/g, ' ')} completed successfully.`
+        if (method === 'toggleLayer') {
+            message = `${targetMatch?.resolved || displayName || 'The layer'} is now ${
+                action.args?.visible ? 'visible' : 'hidden'
+            }.`
+        } else if (method === 'setLayerOpacity') {
+            const opacity = Number(action.args?.opacity)
+            message = `Set ${
+                targetMatch?.resolved || displayName || 'the layer'
+            } opacity to ${
+                Number.isFinite(opacity)
+                    ? `${Math.round(opacity * 100)}%`
+                    : 'the requested value'
+            }.`
+        }
+        return createToolResult({
+            tool: action.tool,
+            callId: action.callId,
+            ok: true,
+            message,
+            data: {
+                method,
+                args,
+                result: apiResult,
+                verified: verifiedResult.data,
+            },
+        })
     }
 
     // ————— Layer helpers (robust name/id resolution) —————————————————————
 
     function collectLayers() {
-        if (!state.layerIndex.length) refreshLayerIndex()
-        return state.layerIndex.map((layer) => {
-            const aliases = Array.from(
-                new Set(
-                    (layer.normalizedAliases || [])
-                        .map((alias) => alias.raw)
-                        .filter(Boolean)
-                )
+        refreshLayerIndex()
+        return state.layerIndex
+            .filter(
+                (layer) =>
+                    String(layer?.config?.type || '').toLowerCase() !== 'header'
             )
-            const timeMeta = layer.timeMeta
-            const time =
-                timeMeta && timeMeta.enabled
-                    ? {
-                          enabled: true,
-                          cadence: timeMeta.cadence,
-                          format: timeMeta.format,
-                          available_start: timeMeta.availableStart,
-                          available_end: timeMeta.availableEnd,
-                          current_start: timeMeta.currentStart,
-                          current_end: timeMeta.currentEnd,
-                      }
-                    : null
-            return {
-                id: layer.id,
-                display: layer.displayName,
-                name: layer.canonical,
-                aliases,
-                groupPath: layer.groupPath || '',
-                visible: layer.visible,
-                bbox: Array.isArray(layer.bbox) ? layer.bbox.slice() : null,
-                time,
-            }
-        })
+            .map((layer) => {
+                const aliases = Array.from(
+                    new Set(
+                        (layer.normalizedAliases || [])
+                            .map((alias) => alias.raw)
+                            .filter(Boolean)
+                    )
+                )
+                const timeMeta = layer.timeMeta
+                const analysis = assessLayerAnalysisCompatibility(layer, {
+                    onState: L_?.layers?.on || null,
+                    tools: state.toolRegistry?.tools || [],
+                })
+                const time =
+                    timeMeta && timeMeta.enabled
+                        ? {
+                              enabled: true,
+                              cadence: timeMeta.cadence,
+                              format: timeMeta.format,
+                              available_start: timeMeta.availableStart,
+                              available_end: timeMeta.availableEnd,
+                              current_start: timeMeta.currentStart,
+                              current_end: timeMeta.currentEnd,
+                          }
+                        : null
+                return {
+                    id: layer.id,
+                    display: layer.displayName,
+                    name: layer.canonical,
+                    aliases,
+                    groupPath: layer.groupPath || '',
+                    visible: layer.visible,
+                    bbox: Array.isArray(layer.bbox) ? layer.bbox.slice() : null,
+                    time,
+                    type: layer.config?.type || null,
+                    source_type:
+                        layer.config?.sourceType ||
+                        layer.config?.demSourceType ||
+                        null,
+                    analysis: {
+                        supported: analysis.supported,
+                        reason: analysis.reason,
+                        operations: analysis.operations,
+                        source: analysis.source,
+                        scalar: analysis.scalar,
+                    },
+                }
+            })
     }
 
-    function buildAgentContext() {
+    async function buildAgentContext() {
+        await ensureRegistry({ refreshRuntime: true })
         const layers = collectLayers()
-        if (!layers.length) return null
         const hints = layers.map((layer) => {
             const hint = {
                 display_name: layer.display,
@@ -1899,9 +1916,88 @@ function interfaceWithMMGIS() {
                 bbox: layer.bbox,
             }
             if (layer.time) hint.time = layer.time
+            hint.type = layer.type
+            hint.source_type = layer.source_type
+            hint.analysis = layer.analysis
             return hint
         })
-        return { layers: hints }
+        const map = window.mmgisAPI?.map
+        let mapContext = null
+        if (map) {
+            const center = map.getCenter?.()
+            const bounds = map.getBounds?.()
+            mapContext = {
+                center:
+                    center &&
+                    Number.isFinite(center.lng) &&
+                    Number.isFinite(center.lat)
+                        ? [center.lng, center.lat]
+                        : null,
+                zoom: Number.isFinite(map.getZoom?.()) ? map.getZoom() : null,
+                bounds: bounds ? latLngBoundsToBbox(bounds) : null,
+                home:
+                    Array.isArray(L_?.view) && L_.view.length >= 2
+                        ? {
+                              center: [Number(L_.view[1]), Number(L_.view[0])],
+                              zoom: Number.isFinite(Number(L_.view[2]))
+                                  ? Number(L_.view[2])
+                                  : null,
+                          }
+                        : null,
+            }
+        }
+        const pluginActions = state.runtimeActions
+            .map(toRuntimeCapabilityDescriptor)
+            .filter(Boolean)
+        const configuredTools = Array.isArray(L_?.configData?.tools)
+            ? L_.configData.tools
+                  .map((tool) => tool?.name || tool?.js)
+                  .filter(Boolean)
+            : []
+        const activeFeature = window.mmgisAPI?.getActiveFeature?.()
+        const activeLayer =
+            activeFeature && typeof activeFeature === 'object'
+                ? Object.keys(activeFeature)[0] || null
+                : L_?.activeFeature?.layerName || null
+        const activeToolsRaw = window.mmgisAPI?.getActiveTools?.()
+        const activeTools = Array.isArray(activeToolsRaw?.activeToolNames)
+            ? activeToolsRaw.activeToolNames.slice(0, 20).map(String)
+            : [window.mmgisAPI?.getActiveTool?.()?.activeToolName]
+                  .filter(Boolean)
+                  .map(String)
+        return {
+            mission: getCurrentMission(),
+            map: mapContext,
+            layers: hints,
+            temporal: {
+                enabled: TimeControl?.enabled === true,
+                current: TimeControl?.currentTime || null,
+                start: TimeControl?.startTime || null,
+                end: TimeControl?.endTime || null,
+            },
+            analysis: buildAnalysisCatalog(state.layerIndex, {
+                onState: L_?.layers?.on || null,
+                tools: state.toolRegistry?.tools || [],
+            }).map((entry) => ({
+                layer: entry.layerName,
+                visible: entry.visible,
+                supported: entry.supported,
+                reason: entry.reason,
+                operations: entry.operations,
+                source: entry.source,
+            })),
+            // The backend owns the bundled/static registry. Only locally
+            // registered runtime capabilities are sent across the trust
+            // boundary; static specs remain client-local for dispatch.
+            runtimeCapabilities: pluginActions,
+            loadedTools: configuredTools,
+            activeLayer,
+            activeTools,
+            current: {
+                layer: activeLayer,
+                tools: activeTools,
+            },
+        }
     }
 
     function handleLayerVisibilityChange(event) {
@@ -1946,14 +2042,19 @@ function interfaceWithMMGIS() {
         // Mission-specific conflict rules can be provided via window.mmgisAgentLayerConflicts:
         // An array of { trigger: /regex/, conflicts: /regex/ } objects.
         // If no mission provides rules, we skip conflict resolution entirely.
-        const conflictRules = (typeof window !== 'undefined' && window.mmgisAgentLayerConflicts) || []
+        const conflictRules =
+            (typeof window !== 'undefined' &&
+                window.mmgisAgentLayerConflicts) ||
+            []
         if (!conflictRules.length) return []
 
         const normalizedQuery = normalizeName(queryText)
         const api = window.mmgisAPI
         if (!api) return []
 
-        const matchingRules = conflictRules.filter(r => r.trigger && r.trigger.test(normalizedQuery))
+        const matchingRules = conflictRules.filter(
+            (r) => r.trigger && r.trigger.test(normalizedQuery)
+        )
         if (!matchingRules.length) return []
 
         const visible = api.getVisibleLayers?.() || {}
@@ -1975,7 +2076,9 @@ function interfaceWithMMGIS() {
                     .filter(Boolean)
                     .join(' ')
             )
-            const shouldDisable = matchingRules.some(r => r.conflicts && r.conflicts.test(haystack))
+            const shouldDisable = matchingRules.some(
+                (r) => r.conflicts && r.conflicts.test(haystack)
+            )
             if (!shouldDisable) continue
             try {
                 await api.toggleLayer(id, false)
@@ -2032,8 +2135,11 @@ function interfaceWithMMGIS() {
 
     // ————— Failure reporting helper ——————————————————————————————————————
     function addFailure(entry, noteText, error, meta) {
-        const message =
-            noteText || (error && error.message) || 'Unknown failure.'
+        const message = sanitizeErrorMessage(
+            noteText || error,
+            'Unknown failure.'
+        )
+        if (error) console.error('[AgentChat][tool failure]', error)
         addNoteToAssistant(entry, message)
         try {
             entry.debug =
@@ -2047,11 +2153,7 @@ function interfaceWithMMGIS() {
                 : []
             entry.debug.clientFailures.push({
                 message,
-                stack:
-                    typeof error?.stack === 'string'
-                        ? error.stack.split(/\r?\n/)
-                        : undefined,
-                meta,
+                meta: sanitizeToolData(meta),
             })
             saveHistory()
             renderMessages()
@@ -2104,7 +2206,14 @@ function interfaceWithMMGIS() {
 
     function loadConversationId() {
         try {
-            return localStorage.getItem(CONVERSATION_ID_KEY) || null
+            return (
+                localStorage.getItem(
+                    scopedAgentStorageKey(
+                        CONVERSATION_ID_KEY,
+                        getCurrentMission()
+                    )
+                ) || null
+            )
         } catch {
             return null
         }
@@ -2112,17 +2221,23 @@ function interfaceWithMMGIS() {
 
     function saveConversationId(id) {
         try {
+            const key = scopedAgentStorageKey(
+                CONVERSATION_ID_KEY,
+                state.storageMission || getCurrentMission()
+            )
             if (id) {
-                localStorage.setItem(CONVERSATION_ID_KEY, id)
+                localStorage.setItem(key, id)
             } else {
-                localStorage.removeItem(CONVERSATION_ID_KEY)
+                localStorage.removeItem(key)
             }
         } catch (_) {}
     }
 
     function loadHistory() {
         try {
-            const raw = localStorage.getItem(HISTORY_KEY)
+            const raw = localStorage.getItem(
+                scopedAgentStorageKey(HISTORY_KEY, getCurrentMission())
+            )
             const parsed = raw ? JSON.parse(raw) : []
             return Array.isArray(parsed) ? parsed.slice(-200) : []
         } catch {
@@ -2164,39 +2279,30 @@ function interfaceWithMMGIS() {
         } catch (_) {}
     }
 
-    function sanitizeDemoQueries(payload) {
-        if (!payload || !Array.isArray(payload.queries)) return null
-        const queries = payload.queries
-            .map((item) => (typeof item === 'string' ? item.trim() : ''))
-            .filter(Boolean)
-        if (!queries.length) return null
-        return queries
-    }
-
     async function loadDemoQueries() {
         let queries = DEFAULT_DEMO_QUERIES.slice()
         try {
-            const res = await fetch(
-                window.mmgisglobal.ROOT_PATH + '/api/agent/copilot/demo-queries',
-                {
-                    method: 'GET',
-                    cache: 'no-store',
-                    headers: { 'Content-Type': 'application/json' },
-                }
-            )
+            const res = await fetch(agentApiUrl('/copilot/demo-queries'), {
+                method: 'GET',
+                cache: 'no-store',
+                headers: { 'Content-Type': 'application/json' },
+            })
             if (!res.ok) {
                 throw new Error(`Failed to load demo queries: ${res.status}`)
             }
             const payload = await res.json()
             const parsed = sanitizeDemoQueries(payload)
-            if (!parsed) {
+            if (!parsed.length) {
                 throw new Error('Demo queries response is invalid')
             }
             queries = parsed
         } catch (_) {}
 
         state.demoQueries = queries
-        state.demoIndex = clampDemoIndex(state.demoIndex, state.demoQueries.length)
+        state.demoIndex = clampDemoIndex(
+            state.demoIndex,
+            state.demoQueries.length
+        )
         saveDemoIndex(state.demoIndex)
         syncHeaderActionStates()
     }
@@ -2204,7 +2310,10 @@ function interfaceWithMMGIS() {
     function saveHistory() {
         try {
             localStorage.setItem(
-                HISTORY_KEY,
+                scopedAgentStorageKey(
+                    HISTORY_KEY,
+                    state.storageMission || getCurrentMission()
+                ),
                 JSON.stringify(state.history.slice(-200))
             )
         } catch {}
@@ -2221,6 +2330,18 @@ function interfaceWithMMGIS() {
             state.lastInputHadText = false
             rotateInputPlaceholder()
         }
+        renderMessages()
+    }
+
+    function ensureMissionConversationState() {
+        const mission = getCurrentMission() || ''
+        if (mission === state.storageMission) return
+        state.storageMission = mission
+        state.history = loadHistory()
+        state.conversationId = loadConversationId()
+        state.welcomeSuggestions = null
+        state.contextualSuggestions = null
+        state.contextualSuggestionsAt = null
         renderMessages()
     }
     function pushMessage(entry, { persist = true } = {}) {
@@ -2285,96 +2406,38 @@ function interfaceWithMMGIS() {
     }
 
     function createContextualSuggestions() {
-        const lastMessages = state.history.slice(-6) // Look at last 6 messages
-        const contextualSuggestions = []
+        refreshLayerIndex()
+        const contextualSuggestions = buildContextualSuggestions(
+            state.history,
+            state.layerIndex,
+            {
+                onState: L_?.layers?.on || null,
+                tools: state.toolRegistry?.tools || [],
+            }
+        )
         const baseSuggestions = getCopilotSuggestionPool()
-
-        // Get current layer information for context-aware suggestions
-        const currentLayers = state.layerIndex.map(l => l.displayName || l.name).filter(Boolean)
-        const visibleLayers = state.layerIndex.filter(l => l.visible).map(l => l.displayName || l.name)
-        
-        // Analyze recent conversation for context
-        const lastUserMessage = lastMessages.filter(msg => msg.role === 'user').slice(-1)[0]
-        const lastAssistantMessage = lastMessages.filter(msg => msg.role === 'assistant').slice(-1)[0]
-        
-        // Generate follow-up suggestions based on conversation
-        if (lastUserMessage && lastAssistantMessage) {
-            const userContent = (lastUserMessage.content || '').toLowerCase()
-            const assistantContent = (lastAssistantMessage.content || '').toLowerCase()
-
-            // Layer-related follow-ups
-            if (userContent.includes('layer') || assistantContent.includes('layer')) {
-                contextualSuggestions.push(
-                    'What other layers are available?',
-                    'Set layer opacity to 50%',
-                    'Show me layer information'
-                )
-                
-                // Add specific layer suggestions if available
-                if (visibleLayers.length > 0) {
-                    contextualSuggestions.push(`Analyze ${visibleLayers[0]}`)
-                }
-            }
-
-            // Time-related follow-ups
-            if (userContent.includes('time') || assistantContent.includes('time') || userContent.includes('date')) {
-                contextualSuggestions.push(
-                    'Show available time range',
-                    'Move to latest date',
-                    'Go to January 2024'
-                )
-            }
-
-            // Analysis follow-ups
-            if (userContent.includes('analyze') || userContent.includes('mean') || userContent.includes('statistic')) {
-                const analyzeLayer = currentLayers[0]
-                if (analyzeLayer) {
-                    contextualSuggestions.push(
-                        `Show statistics of ${analyzeLayer} for the full layer extent`,
-                        `Highlight areas where ${analyzeLayer} exceeds its average value`
-                    )
-                }
-                contextualSuggestions.push('Compare with other layers')
-            }
-
-            // Geographic follow-ups
-            if (userContent.includes('zoom') || userContent.includes('region') || userContent.includes('sea')) {
-                contextualSuggestions.push(
-                    'Zoom to Arctic Ocean',
-                    'Show Beaufort Sea region',
-                    'List visible layers in this area'
-                )
-            }
-
-            // Dynamic layer-specific follow-ups based on actual visible layers
-            if (currentLayers.length >= 2) {
-                contextualSuggestions.push(`Compare ${currentLayers[0]} vs ${currentLayers[1]}`)
-            }
-            const matchedLayer = currentLayers.find(l => {
-                const lc = l.toLowerCase()
-                return userContent.split(' ').some(word => word.length > 3 && lc.includes(word))
-            })
-            if (matchedLayer) {
-                contextualSuggestions.push(`Show ${matchedLayer} changes over time`)
-                contextualSuggestions.push(`Highlight areas where ${matchedLayer} exceeds its average value`)
-            }
-        }
-
-        // Mix contextual suggestions with base suggestions
-        const allSuggestions = [...new Set([...contextualSuggestions, ...baseSuggestions])]
+        const allSuggestions = [
+            ...new Set([...contextualSuggestions, ...baseSuggestions]),
+        ]
         const chipCount = boundedRandomCount(
             COPILOT_SUGGESTION_CHIP_RANGE.min,
             COPILOT_SUGGESTION_CHIP_RANGE.max,
             allSuggestions.length
         )
-        
+
         // Prioritize contextual suggestions
         const contextualCount = Math.min(3, contextualSuggestions.length)
         const baseCount = Math.max(0, chipCount - contextualCount)
-        
-        const selectedContextual = sampleUnique(contextualSuggestions, contextualCount)
-        const selectedBase = sampleUnique(baseSuggestions.filter(s => !contextualSuggestions.includes(s)), baseCount)
-        
+
+        const selectedContextual = sampleUnique(
+            contextualSuggestions,
+            contextualCount
+        )
+        const selectedBase = sampleUnique(
+            baseSuggestions.filter((s) => !contextualSuggestions.includes(s)),
+            baseCount
+        )
+
         return { chips: [...selectedContextual, ...selectedBase] }
     }
 

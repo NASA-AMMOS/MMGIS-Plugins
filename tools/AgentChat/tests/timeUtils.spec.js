@@ -2,11 +2,21 @@ import { test, expect } from '@playwright/test';
 import {
   parseTimeQuery,
   getLayerTimeMetadata,
+  withActiveTimelineBounds,
   computeLayerTargetTime,
+  detectSpecialTimeKeyword,
   formatLayerTimeAnnouncement,
 } from '../timeUtils';
 
-test.describe('timeUtils', () => {
+test.describe('@unit timeUtils', () => {
+  test('recognizes standalone and natural-language latest/earliest requests', () => {
+    expect(detectSpecialTimeKeyword('latest')).toBe('latest');
+    expect(detectSpecialTimeKeyword('most recent date')).toBe('latest');
+    expect(detectSpecialTimeKeyword('earliest')).toBe('earliest');
+    expect(detectSpecialTimeKeyword('go to the first timestamp')).toBe('earliest');
+    expect(detectSpecialTimeKeyword('January 2024')).toBeNull();
+  });
+
   test('parseTimeQuery tolerates typos and paraphrasing', () => {
     const parsed = parseTimeQuery('please set time to Jnaury 2023 for me');
     expect(parsed).toBeTruthy();
@@ -93,6 +103,43 @@ test.describe('timeUtils', () => {
       original: 'earliest date',
     });
     expect(resolved.iso).toBe('2023-05-15T00:00:00Z');
+  });
+
+  test('does not fabricate temporal support or missing latest/earliest bounds', () => {
+    expect(
+      getLayerTimeMetadata({ name: 'GIBS MODIS Daily', type: 'wmts' })
+    ).toEqual({ enabled: false });
+    const withoutBounds = getLayerTimeMetadata({
+      name: 'Explicit Time Layer',
+      time: { enabled: true, format: '%Y-%m-%d' },
+    });
+    expect(computeLayerTargetTime(withoutBounds, { special: 'latest' })).toEqual({
+      ok: false,
+      reason: 'no_max_bound',
+    });
+    expect(computeLayerTargetTime(withoutBounds, { special: 'earliest' })).toEqual({
+      ok: false,
+      reason: 'no_min_bound',
+    });
+  });
+
+  test('uses real active timeline bounds when a time-enabled layer omits its own range', () => {
+    const meta = getLayerTimeMetadata({
+      time: { enabled: true, format: '%Y-%m-%d' },
+    });
+    const grounded = withActiveTimelineBounds(meta, {
+      startTimestamp: Date.UTC(2023, 0, 1),
+      endTimestamp: Date.UTC(2024, 11, 31),
+    });
+    expect(grounded.timelineBoundsUsed).toBe(true);
+    expect(grounded.availableStart).toContain('2023-01-01');
+    expect(grounded.availableEnd).toContain('2024-12-31');
+    expect(
+      computeLayerTargetTime(grounded, {
+        special: 'latest',
+        original: 'latest',
+      })
+    ).toMatchObject({ ok: true, iso: '2024-12-31T00:00:00Z' });
   });
 
   test('formatLayerTimeAnnouncement echoes active timestamp and range', () => {

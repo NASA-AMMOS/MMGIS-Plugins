@@ -5,6 +5,19 @@ import {
     point as turfPoint,
 } from '@turf/turf'
 import L_ from '@basics/Layers_/Layers_'
+import { collectThresholdMatches } from './thresholdSamples'
+import { buildRasterTransformers } from './localAnalyticsCrs'
+import {
+    buildSampleGridMetadata,
+    pairAlignedRasterValues,
+} from './rasterAlignment'
+import { resolveRasterSamplingBbox } from './rasterBbox'
+import { buildConfiguredAgentEndpoint } from './agentEndpoints'
+import {
+    configuredNoDataValues,
+    resolveScalarRasterTransform,
+} from './scalarRasterTransform'
+import { compareDifferenceUnits } from './rasterDifferenceUnits'
 
 const DEFAULT_MAX_PIXELS = 600000
 const DEFAULT_MAX_MASK_POINTS = 2000
@@ -20,54 +33,6 @@ function logLocal(message, context = null) {
         } catch (_) {}
     }
     console.info('[AgentChat][LocalAnalytics]', payload)
-}
-
-function deriveEpsgCode(geoKeys) {
-    if (!geoKeys || typeof geoKeys !== 'object') return null
-    const numericCode =
-        geoKeys.ProjectedCSTypeGeoKey || geoKeys.GeographicTypeGeoKey || null
-    if (
-        typeof numericCode === 'number' &&
-        Number.isFinite(numericCode) &&
-        numericCode > 0
-    ) {
-        return `EPSG:${numericCode}`
-    }
-    const citation =
-        geoKeys.ProjectedCitationGeoKey || geoKeys.GeogCitationGeoKey || ''
-    if (typeof citation === 'string') {
-        const match = citation.match(/EPSG\s*:(\d+)/i)
-        if (match && match[1]) return `EPSG:${match[1]}`
-    }
-    return null
-}
-
-function buildTransformers(image) {
-    const geoKeys =
-        (typeof image.getGeoKeys === 'function' && image.getGeoKeys()) ||
-        image.geoKeys ||
-        {}
-    const epsgCode = deriveEpsgCode(geoKeys) || 'EPSG:4326'
-    const hasProj = typeof window?.proj4 === 'function'
-    const forward = (lon, lat) => {
-        if (!hasProj || epsgCode === 'EPSG:4326') return [lon, lat]
-        try {
-            return window.proj4('EPSG:4326', epsgCode, [lon, lat])
-        } catch (error) {
-            console.warn('Failed to project coordinates:', error)
-            return [lon, lat]
-        }
-    }
-    const inverse = (x, y) => {
-        if (!hasProj || epsgCode === 'EPSG:4326') return [x, y]
-        try {
-            return window.proj4(epsgCode, 'EPSG:4326', [x, y])
-        } catch (error) {
-            console.warn('Failed to unproject coordinates:', error)
-            return [x, y]
-        }
-    }
-    return { toImage: forward, toLatLon: inverse }
 }
 
 function normalizeGeometry(rawGeometry, bbox) {
@@ -114,7 +79,7 @@ function isGeometryDerived(geometry) {
     return new Set(unique).size <= 4
 }
 
-function extractSourceUrl(layerMatch, timeTokens = {}) {
+async function extractSourceUrl(layerMatch, timeTokens = {}) {
     const layerMeta = layerMatch?.layer || {}
     const layerConfig =
         (layerMeta.config && typeof layerMeta.config === 'object'
@@ -122,6 +87,9 @@ function extractSourceUrl(layerMatch, timeTokens = {}) {
             : layerMeta) || {}
     const candidates = [
         layerConfig.cogUrl,
+        layerConfig.demtileurl,
+        layerConfig.demurl,
+        layerConfig.demUrl,
         layerConfig.url,
         layerConfig.source,
         layerConfig.path,
@@ -148,6 +116,60 @@ function extractSourceUrl(layerMatch, timeTokens = {}) {
     // prepends to URLs at parse time — they are not part of the actual path.
     let resolved = raw.replace(/^[A-Za-z][\w-]*:(?!\/\/)/, '')
 
+    const sourceType = String(
+        layerConfig.sourceType || layerConfig.demSourceType || ''
+    ).toLowerCase()
+    const isStac =
+        sourceType === 'stac-collection' || /^stac-collection:/i.test(raw)
+    if (isStac) {
+        const collection = raw
+            .replace(/^stac-collection:/i, '')
+            .split('?')[0]
+            .trim()
+        if (!collection) {
+            const error = new Error(
+                'The selected STAC layer does not identify a collection to analyze.'
+            )
+            error.code = 'LOCAL_ANALYTICS_SOURCE_UNAVAILABLE'
+            throw error
+        }
+        const endpoint = buildConfiguredAgentEndpoint({
+            path: '/analytics/resolve-cog',
+            mission: L_?.mission || '',
+            rootPath: window?.mmgisglobal?.ROOT_PATH || '',
+            configuredUrl: window?.mmgisAgentChat?.getAgentApiUrl,
+            params: {
+                layer: collection,
+                time:
+                    timeTokens['{endtime}'] ||
+                    timeTokens['{time}'] ||
+                    undefined,
+            },
+            origin: window?.location?.origin || '',
+        })
+        try {
+            const response = await fetch(endpoint, {
+                headers: { Accept: 'application/json' },
+            })
+            const payload = await response.json().catch(() => null)
+            if (response.ok && typeof payload?.url === 'string') {
+                resolved = payload.url.trim()
+            } else {
+                throw new Error('STAC collection did not resolve to a raster.')
+            }
+        } catch (cause) {
+            console.error(
+                `[AgentChat] STAC collection "${collection}" could not be resolved for local analytics.`,
+                cause
+            )
+            const error = new Error(
+                'The selected STAC collection could not be resolved to an analyzable raster.'
+            )
+            error.code = 'LOCAL_ANALYTICS_SOURCE_UNAVAILABLE'
+            throw error
+        }
+    }
+
     Object.keys(timeTokens).forEach((token) => {
         if (!token || typeof timeTokens[token] !== 'string') return
         resolved = resolved.replace(new RegExp(token, 'g'), timeTokens[token])
@@ -160,16 +182,16 @@ function extractSourceUrl(layerMatch, timeTokens = {}) {
             if (urlParam) resolved = urlParam
         } catch (_) {}
     }
-    const root = `${window.location.origin}${
-        (window.mmgisglobal?.ROOT_PATH || '').replace(/\/$/, '')
-    }`
+    const root = `${window.location.origin}${(
+        window.mmgisglobal?.ROOT_PATH || ''
+    ).replace(/\/$/, '')}`
     if (/^https?:\/\//i.test(resolved)) return resolved
     const missionPath = (L_.missionPath || '').replace(/^\/+/, '')
     const relative = /^\/?Missions\//i.test(resolved)
         ? resolved.replace(/^\/+/, '')
         : missionPath
-        ? `${missionPath.replace(/\/$/, '')}/${resolved.replace(/^\/+/, '')}`
-        : resolved.replace(/^\/+/, '')
+          ? `${missionPath.replace(/\/$/, '')}/${resolved.replace(/^\/+/, '')}`
+          : resolved.replace(/^\/+/, '')
     try {
         const base = new URL(root.endsWith('/') ? root : `${root}/`)
         return new URL(relative, base).toString()
@@ -194,21 +216,20 @@ function clampBBox(bbox, datasetBBox) {
     return [minX, minY, maxX, maxY]
 }
 
-function convertBboxToImage(bbox, transformer) {
-    const corners = [
-        transformer.toImage(bbox[0], bbox[1]),
-        transformer.toImage(bbox[0], bbox[3]),
-        transformer.toImage(bbox[2], bbox[1]),
-        transformer.toImage(bbox[2], bbox[3]),
-    ]
-    const xs = corners.map((c) => c[0])
-    const ys = corners.map((c) => c[1])
-    return [
-        Math.min(...xs),
-        Math.min(...ys),
-        Math.max(...xs),
-        Math.max(...ys),
-    ]
+function convertBboxToImage(area, datasetBBox, transformer) {
+    const projected = resolveRasterSamplingBbox(
+        area,
+        datasetBBox,
+        transformer.toImage
+    )
+    if (!projected) {
+        const error = new Error(
+            'The selected geographic bounds could not be projected into the raster reference system.'
+        )
+        error.code = 'LOCAL_ANALYTICS_CRS_TRANSFORM_FAILED'
+        throw error
+    }
+    return projected
 }
 
 function createWindow(imageBBox, datasetBBox, width, height) {
@@ -235,14 +256,22 @@ function createWindow(imageBBox, datasetBBox, width, height) {
 }
 
 export async function sampleRaster(layerMatch, area, options = {}) {
+    const layerMeta = layerMatch?.layer || {}
+    const layerConfig =
+        (layerMeta.config && typeof layerMeta.config === 'object'
+            ? layerMeta.config
+            : layerMeta) || {}
     const timeTokens = {
-        '{time}': options.time || layerMatch?.layer?.liveInstance?.options?.time,
+        '{time}':
+            options.time || layerMatch?.layer?.liveInstance?.options?.time,
         '{starttime}':
-            options.startTime || layerMatch?.layer?.liveInstance?.options?.starttime,
+            options.startTime ||
+            layerMatch?.layer?.liveInstance?.options?.starttime,
         '{endtime}':
-            options.endTime || layerMatch?.layer?.liveInstance?.options?.endtime,
+            options.endTime ||
+            layerMatch?.layer?.liveInstance?.options?.endtime,
     }
-    const sourceUrl = extractSourceUrl(layerMatch, timeTokens)
+    const sourceUrl = await extractSourceUrl(layerMatch, timeTokens)
     if (!sourceUrl) {
         throw new Error(
             `Layer "${layerMatch?.displayName || 'unknown'}" is missing a COG URL for local analytics.`
@@ -250,9 +279,28 @@ export async function sampleRaster(layerMatch, area, options = {}) {
     }
     const tiff = await getGeoTiff(sourceUrl)
     const image = await tiff.getImage()
-    const transformer = buildTransformers(image)
+    const band = Number(options.band || 1)
+    const sampleCount = Number(
+        image.getSamplesPerPixel?.() ||
+            image.fileDirectory?.SamplesPerPixel ||
+            1
+    )
+    if (!Number.isInteger(band) || band < 1 || band > sampleCount) {
+        const error = new Error(
+            `Raster band ${options.band} is not available in the selected GeoTIFF.`
+        )
+        error.code = 'LOCAL_ANALYTICS_BAND_UNAVAILABLE'
+        throw error
+    }
+    const scalarTransform = resolveScalarRasterTransform(layerConfig, band)
+    if (!scalarTransform.ok) {
+        const error = new Error(scalarTransform.message)
+        error.code = scalarTransform.errorCode
+        throw error
+    }
+    const transformer = buildRasterTransformers(image)
     const datasetBBox = image.getBoundingBox()
-    const areaImageBBox = convertBboxToImage(area.bbox, transformer)
+    const areaImageBBox = convertBboxToImage(area, datasetBBox, transformer)
     const clamped = clampBBox(areaImageBBox, datasetBBox)
     if (!clamped) {
         throw new Error('Selected area falls outside the raster footprint.')
@@ -264,12 +312,14 @@ export async function sampleRaster(layerMatch, area, options = {}) {
         image.getHeight()
     )
     if (!window) {
-        throw new Error('Unable to derive raster window for the selected region.')
+        throw new Error(
+            'Unable to derive raster window for the selected region.'
+        )
     }
     const approxWidth = window[2] - window[0]
     const approxHeight = window[3] - window[1]
     const approxPixels = approxWidth * approxHeight
-    const readOptions = { window, samples: [0] }
+    const readOptions = { window, samples: [band - 1] }
     const maxPixels = options.maxPixels || DEFAULT_MAX_PIXELS
     if (approxPixels > maxPixels) {
         const scale = Math.sqrt(approxPixels / maxPixels)
@@ -279,9 +329,19 @@ export async function sampleRaster(layerMatch, area, options = {}) {
     const raster = await image.readRasters(readOptions)
     const width = readOptions.width || raster.width || approxWidth
     const height = readOptions.height || raster.height || approxHeight
+    const sampledCellCount = width * height
+    const isSampled = sampledCellCount < approxPixels
     const data = Array.isArray(raster) ? raster[0] : raster
-    const pixelWidth = Math.abs(clamped[2] - clamped[0]) / width
-    const pixelHeight = Math.abs(clamped[3] - clamped[1]) / height
+    const grid = buildSampleGridMetadata({
+        crs: transformer.crs,
+        datasetBBox,
+        imageWidth: image.getWidth(),
+        imageHeight: image.getHeight(),
+        window,
+        width,
+        height,
+    })
+    const { pixelWidth, pixelHeight } = grid
     const nodataSet = new Set()
     const nodataRaw = image.getGDALNoData?.()
     if (Array.isArray(nodataRaw)) {
@@ -289,53 +349,83 @@ export async function sampleRaster(layerMatch, area, options = {}) {
     } else if (nodataRaw != null) {
         nodataSet.add(Number(nodataRaw))
     }
+    configuredNoDataValues(layerConfig).forEach((value) => nodataSet.add(value))
     const geometry = normalizeGeometry(options.geometry, area.bbox)
     const requireMask = options.forceMask || !isGeometryDerived(geometry)
     const values = []
+    // Keep the source raster index aligned with every compacted valid value.
+    // `values` omits NoData and polygon-excluded pixels, so its array index is
+    // not a raster cell index and must never be used to derive coordinates.
+    const sourceIndices = []
+    const samples = options.includeCoordinates ? [] : null
     let nodataCount = 0
     for (let idx = 0; idx < data.length; idx += 1) {
-        const value = data[idx]
-        if ((nodataSet.size && nodataSet.has(value)) || value == null) {
+        const rawValue = data[idx]
+        if ((nodataSet.size && nodataSet.has(rawValue)) || rawValue == null) {
             nodataCount += 1
             continue
         }
+        if (!Number.isFinite(rawValue)) {
+            nodataCount += 1
+            continue
+        }
+        const value = scalarTransform.apply(rawValue)
         if (!Number.isFinite(value)) {
+            // Values outside an explicitly configured display-domain range are
+            // fill/invalid cells for this declared transform, not observations.
             nodataCount += 1
             continue
         }
-        if (requireMask) {
+        let lon = null
+        let lat = null
+        if (requireMask || samples) {
             const col = idx % width
             const row = Math.floor(idx / width)
-            const x = clamped[0] + (col + 0.5) * pixelWidth
-            const y = clamped[3] - (row + 0.5) * pixelHeight
-            const [lon, lat] = transformer.toLatLon(x, y)
-            if (
-                !Number.isFinite(lon) ||
-                !Number.isFinite(lat) ||
-                !booleanPointInPolygon(turfPoint([lon, lat]), geometry)
-            ) {
+            const x = grid.bbox[0] + (col + 0.5) * pixelWidth
+            const y = grid.bbox[3] - (row + 0.5) * pixelHeight
+            ;[lon, lat] = transformer.toLatLon(x, y)
+            if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
                 continue
             }
+            if (
+                requireMask &&
+                !booleanPointInPolygon(turfPoint([lon, lat]), geometry)
+            )
+                continue
         }
         values.push(value)
+        sourceIndices.push(idx)
+        if (samples) samples.push({ lon, lat, value, sourceIndex: idx })
     }
     if (!values.length) {
         throw new Error('No valid pixels found inside the requested region.')
     }
     return {
         values,
+        sourceIndices,
+        samples,
         rawData: data,
         nodataSet,
         width,
         height,
-        pixelWidth,
-        pixelHeight,
-        bbox: clamped,
+        ...grid,
         totalCount: data.length,
+        sampleCount: data.length,
+        populationCount: approxPixels,
+        populationCoverage:
+            approxPixels > 0 ? Math.min(1, data.length / approxPixels) : null,
+        isSampled,
         nodataCount,
         geometry,
         requireMask,
         toLatLon: transformer.toLatLon,
+        scalarTransform: {
+            expression: scalarTransform.expression,
+            transformed: scalarTransform.transformed,
+            validRange: scalarTransform.validRange,
+            unit: scalarTransform.unit,
+            band,
+        },
         url: sourceUrl,
     }
 }
@@ -397,25 +487,6 @@ function buildHistogram(values, bins, min, max) {
     return { counts, edges }
 }
 
-function passesThreshold(value, operator, compareValue) {
-    switch (operator) {
-        case '>':
-            return value > compareValue
-        case '>=':
-            return value >= compareValue
-        case '<':
-            return value < compareValue
-        case '<=':
-            return value <= compareValue
-        case '==':
-            return value === compareValue
-        case '!=':
-            return value !== compareValue
-        default:
-            return value > compareValue
-    }
-}
-
 export async function calculateLocalBasicStats(layerMatch, area, options = {}) {
     const context = await sampleRaster(layerMatch, area, options)
     const stats = summarizeValues(context.values)
@@ -424,7 +495,23 @@ export async function calculateLocalBasicStats(layerMatch, area, options = {}) {
         total_count: context.totalCount,
         valid_count: stats.count,
         nodata_count: context.nodataCount,
+        sample_count: context.sampleCount,
+        population_count: context.populationCount,
+        population_coverage: context.populationCoverage,
+        is_sampled: context.isSampled,
+        mean_is_approximate: context.isSampled,
+        quantiles_approximate: context.isSampled,
+        method: context.isSampled
+            ? 'bounded resampled raster grid'
+            : 'native-resolution raster window',
         source: 'local-cog',
+        unit: context.scalarTransform?.unit || null,
+        value_expression: context.scalarTransform?.expression || null,
+        valid_range: context.scalarTransform?.validRange || null,
+        sample_count: context.sampleCount,
+        population_count: context.populationCount,
+        population_coverage: context.populationCoverage,
+        is_sampled: context.isSampled,
         geometry: context.geometry,
         requireMask: context.requireMask,
     }
@@ -451,38 +538,130 @@ export async function calculateLocalHistogram(
 export async function calculateLocalThresholdMask(
     layerMatch,
     area,
-    { operator = '>', value = 0, geometry = null, maxPoints } = {}
+    {
+        operator = '>',
+        value = 0,
+        valueMin = null,
+        valueMax = null,
+        band = 1,
+        geometry = null,
+        maxPoints,
+        time = null,
+        startTime = null,
+        endTime = null,
+    } = {}
 ) {
-    const context = await sampleRaster(layerMatch, area, { geometry })
-    const matches = []
-    let matchCount = 0
-    for (let idx = 0; idx < context.values.length; idx += 1) {
-        const current = context.values[idx]
-        if (!passesThreshold(current, operator, value)) continue
-        matchCount += 1
-        const limit = maxPoints || DEFAULT_MAX_MASK_POINTS
-        if (matches.length >= limit) continue
-        const col = idx % context.width
-        const row = Math.floor(idx / context.width)
-        const x = context.bbox[0] + (col + 0.5) * context.pixelWidth
-        const y = context.bbox[3] - (row + 0.5) * context.pixelHeight
-        const [lon, lat] = context.toLatLon(x, y)
-        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
-        matches.push({ lon, lat, value: current })
-    }
+    const context = await sampleRaster(layerMatch, area, {
+        band,
+        geometry,
+        includeCoordinates: true,
+        time,
+        startTime,
+        endTime,
+    })
+    const compareValue =
+        operator === 'between'
+            ? { min: Number(valueMin), max: Number(valueMax) }
+            : Number(value)
+    const { matches, matchCount } = collectThresholdMatches(
+        context.samples,
+        operator,
+        compareValue,
+        maxPoints || DEFAULT_MAX_MASK_POINTS
+    )
     return {
         matches,
         matchCount,
         totalCount: context.values.length,
+        sampleCount: context.sampleCount,
+        populationCount: context.populationCount,
+        isSampled: context.isSampled,
+        unit: context.scalarTransform?.unit || null,
+        valueExpression: context.scalarTransform?.expression || null,
         coverage:
-            context.values.length > 0
-                ? matchCount / context.values.length
-                : 0,
+            context.values.length > 0 ? matchCount / context.values.length : 0,
         source: 'local-cog',
+    }
+}
+
+/**
+ * Compare two raster sources only after the shared sampler proves identical
+ * CRS, affine grid, bounded window, resampling dimensions, and co-located
+ * valid-cell masks. Values are the mission-declared display-domain values,
+ * never independently compacted or untransformed source arrays.
+ */
+export async function calculateLocalAlignedDifference(
+    layerA,
+    layerB,
+    area,
+    options = {}
+) {
+    const [left, right] = await Promise.all([
+        sampleRaster(layerA, area, {
+            maxPixels: options.maxPixels || 300000,
+            time: options.timeA || options.time,
+            startTime: options.startTimeA || options.startTime,
+            endTime: options.endTimeA || options.endTime,
+        }),
+        sampleRaster(layerB, area, {
+            maxPixels: options.maxPixels || 300000,
+            time: options.timeB || options.time,
+            startTime: options.startTimeB || options.startTime,
+            endTime: options.endTimeB || options.endTime,
+        }),
+    ])
+    const unitA = String(left.scalarTransform?.unit || '').trim()
+    const unitB = String(right.scalarTransform?.unit || '').trim()
+    const unitCompatibility = compareDifferenceUnits(unitA, unitB)
+    if (!unitCompatibility.ok) {
+        const error = new Error(unitCompatibility.message)
+        error.code = unitCompatibility.code
+        throw error
+    }
+    const paired = pairAlignedRasterValues(left, right)
+    if (!paired.ok || !paired.valuesA.length) {
+        const error = new Error(
+            paired.reason || 'No co-located valid raster cells were found.'
+        )
+        error.code = paired.code || 'DIFFERENCE_ALIGNMENT_REQUIRED'
+        throw error
+    }
+    const differences = paired.valuesA.map(
+        (value, index) => value - paired.valuesB[index]
+    )
+    const summary = summarizeValues(differences)
+    const leftSummary = summarizeValues(paired.valuesA)
+    const rightSummary = summarizeValues(paired.valuesB)
+    const sampled = left.isSampled || right.isSampled
+    return {
+        ...summary,
+        mean_a: leftSummary.mean,
+        mean_b: rightSummary.mean,
+        valid_count: summary.count,
+        total_count: paired.valuesA.length,
+        sample_count: paired.valuesA.length,
+        population_count: Math.min(
+            left.populationCount || paired.valuesA.length,
+            right.populationCount || paired.valuesA.length
+        ),
+        population_coverage: Math.min(
+            left.populationCoverage ?? 1,
+            right.populationCoverage ?? 1
+        ),
+        is_sampled: sampled,
+        mean_is_approximate: sampled,
+        quantiles_approximate: sampled,
+        method: sampled
+            ? 'bounded aligned resampled raster grid'
+            : 'aligned native-resolution raster window',
+        unit: unitCompatibility.unit,
+        source: 'local-aligned-cog',
+        alignment: paired.reason,
+        left_expression: left.scalarTransform?.expression || null,
+        right_expression: right.scalarTransform?.expression || null,
     }
 }
 
 export function logLocalAnalyticsEvent(message, context) {
     logLocal(message, context)
 }
-

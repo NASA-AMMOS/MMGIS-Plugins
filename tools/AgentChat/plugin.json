@@ -1,7 +1,7 @@
 {
   "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "id": "experimental-agent-chat",
-  "version": "5.0.14-20260526",
+  "version": "5.0.15-20260815",
   "type": "tool",
   "tier": "experimental",
   "engines": { "mmgis": ">=5.0.0" },
@@ -37,7 +37,7 @@
           {
             "field": "variables.agentApiUrl",
             "name": "Agent API URL",
-            "description": "Base URL for the Agent backend API (e.g., https://example.com/api/agent). Required for tool to function.",
+            "description": "Optional Agent backend base URL (e.g., https://example.com/api/agent). Defaults to this MMGIS instance's /api/agent endpoint.",
             "type": "text",
             "width": 7,
             "placeholder": "https://example.com/api/agent"
@@ -47,6 +47,9 @@
     ]
   },
   "dependencies": {},
+  "pluginDependencies": [
+    "NASA-AMMOS--MMGIS-Plugins/backend/Agent"
+  ],
   "author": "yunks128",
   "license": "Apache-2.0",
   "repository": "https://github.com/NASA-AMMOS/MMGIS-Plugins/"
