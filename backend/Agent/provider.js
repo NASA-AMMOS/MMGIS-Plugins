@@ -353,7 +353,6 @@ function buildPrompt(message, context = {}, toolOptions = {}) {
     '  * Same layer at two explicit snapshots -> {"actions":[{"tool":"change_detection","args":{"layer_name":"Sea Ice","before_time":"2024-01-01","after_time":"2024-02-01"}}]}',
     '  * Difference -> {"actions":[{"tool":"calculate_layer_difference","args":{"layer_a":"Precipitation Rate","layer_b":"Vegetation Index"}}]}',
     '  * Two-layer comparison over a duration with no registered interval-aware two-layer tool -> {"actions":[],"reply":"I can compare these layers at one map time, but not across the requested interval. Would you like the current map time or a specific date?"}',
-    '  * Export animation -> {"actions":[{"tool":"open_animation_tool","args":{"layer_name":"SIC forecast","start_date":"2024-01-01","end_date":"2024-12-31","region":"Beaufort Sea","format":"gif"}}]}',
     '  * Bare "analyze <layer>" with no analytical goal -> {"actions":[],"reply":"Which supported analysis would you like for that layer?"}',
     "Examples:",
     'User: "Please list layers."\nAssistant: {"actions":[{"tool":"list_layers","args":{}}]}',

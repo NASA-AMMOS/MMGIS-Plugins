@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import {
+  requestIdentity,
   beginRuntimeConversation,
   getRuntimeConversation,
   setPendingActions,
@@ -45,6 +46,41 @@ test.describe("@unit Copilot runtime conversation state", () => {
         "Arctic",
       ),
     ).toBeNull();
+  });
+
+  test("continues bearer-auth conversations across requests without a session cookie", () => {
+    const firstRequest = {
+      apiAuthIdentity: "long-term-token:operator-token-id",
+      user: "operator",
+      sessionID: "ephemeral-request-a",
+    };
+    const continuationRequest = {
+      apiAuthIdentity: "long-term-token:operator-token-id",
+      user: "operator",
+      sessionID: "ephemeral-request-b",
+    };
+
+    const owner = requestIdentity(firstRequest);
+    expect(requestIdentity(continuationRequest)).toBe(owner);
+    expect(owner).toBe("api|long-term-token:operator-token-id");
+    expect(
+      requestIdentity({ user: "operator", sessionID: "ephemeral-request-a" }),
+    ).not.toBe(
+      requestIdentity({ user: "operator", sessionID: "ephemeral-request-b" }),
+    );
+
+    beginRuntimeConversation({
+      conversationId: "bearer-conversation",
+      owner,
+      mission: "Arctic",
+    });
+    expect(
+      getRuntimeConversation(
+        "bearer-conversation",
+        requestIdentity(continuationRequest),
+        "Arctic",
+      ),
+    ).not.toBeNull();
   });
 
   test("validates and consumes exact call IDs once while allowing a next round", () => {

@@ -42,7 +42,6 @@ const TOOL_ANALYSIS_OPERATIONS = {
     spatial_statistics: ['statistics'],
     change_detection: ['change_detection', 'comparison'],
     temporal_trends: ['temporal_trend'],
-    time_series_animation: ['animation'],
 }
 
 function asText(value) {

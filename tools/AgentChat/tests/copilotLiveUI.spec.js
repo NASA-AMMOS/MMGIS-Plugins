@@ -524,10 +524,7 @@ function expectedConfiguredPlan({ family, query }, context = {}) {
   }
   if (family === "dynamic:timeEnabled") {
     if (/^Animate /i.test(query))
-      return {
-        kind: "animation-or-grounded-unavailable",
-        tools: ["time_series_animation", "open_animation_tool"],
-      };
+      return { kind: "grounded-animation-unavailable", tools: [] };
     return { kind: "information", tools: [] };
   }
   if (family === "dynamic:comparison")
@@ -1420,25 +1417,7 @@ function classifyAnimationOutcome({
   toolResults = [],
   response = "",
 } = {}) {
-  const allowedTools = new Set([
-    "time_series_animation",
-    "open_animation_tool",
-  ]);
-  if (actions.length > 0) {
-    if (!actions.every((action) => allowedTools.has(action?.tool))) return null;
-    const results = correlateToolResults(actions, toolResults);
-    if (results.some((result) => !result)) return null;
-    if (results.every((result) => result.ok === true)) return "tool-success";
-    if (
-      results.every(
-        (result) =>
-          result.ok === false &&
-          resultErrorCode(result) === "ANIMATION_TOOL_UNAVAILABLE",
-      )
-    )
-      return "tool-unavailable";
-    return null;
-  }
+  if (actions.length > 0) return null;
   const text = normalizeSemanticResponse(response);
   return toolResults.length === 0 &&
     /\banimation\b/i.test(text) &&
@@ -1946,16 +1925,8 @@ test.describe("@unit real-provider example outcome policy", () => {
     expect(
       classifyAnimationOutcome({
         actions: [{ tool: "open_animation_tool", callId: "animation" }],
-        toolResults: [
-          {
-            tool: "open_animation_tool",
-            callId: "animation",
-            ok: false,
-            error: { code: "ANIMATION_TOOL_UNAVAILABLE" },
-          },
-        ],
       }),
-    ).toBe("tool-unavailable");
+    ).toBeNull();
     expect(
       classifyAnimationOutcome({
         response: "The Animation tool is not available in the current mission.",
@@ -3774,16 +3745,9 @@ function fixtureForMessage(message, live) {
     );
   }
   if (/^Animate .+ over time$/i.test(message)) {
-    const targetName = message.match(/^Animate (.+) over time$/i)?.[1]?.trim();
-    if (!targetName)
-      return informationFixture(
-        message,
-        "No time-enabled layer is available for animation.",
-      );
-    return actionFixture(
-      "time_series_animation",
-      { layer_name: targetName },
-      "live-time-series-animation",
+    return informationFixture(
+      message,
+      "Animation actions are not available until the host exposes a public tool-opening capability.",
     );
   }
   if (/opacity to 50%/i.test(message)) {
@@ -4984,10 +4948,10 @@ test.describe("@e2e opt-in real-provider public exhaustive examples", () => {
             }),
             `${query}: expected a successful temporal_trends action for a uniquely grounded layer or a 2023 trend clarification naming two distinct time-enabled scalar candidates`,
           ).not.toBeNull();
-        } else if (expectedPlan.kind === "animation-or-grounded-unavailable") {
+        } else if (expectedPlan.kind === "grounded-animation-unavailable") {
           expect(
             classifyAnimationOutcome({ actions, toolResults, response }),
-            `${query}: expected a successful Animation action, ANIMATION_TOOL_UNAVAILABLE, or a grounded no-action mission/tool limitation`,
+            `${query}: expected a grounded no-action host capability limitation`,
           ).not.toBeNull();
         } else if (expectedPlan.kind === "analyzable-layer-action") {
           expect(

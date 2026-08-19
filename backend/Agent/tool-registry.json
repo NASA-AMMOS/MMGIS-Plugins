@@ -672,67 +672,6 @@
       }
     },
     {
-      "description": "Create temporal animations showing ice evolution over time. Provides playback controls and frame-by-frame visualization of changes.",
-      "execution": {
-        "adapter": "custom",
-        "ui": {
-          "type": "time_series_animation"
-        }
-      },
-      "category": "temporal",
-      "name": "time_series_animation",
-      "parameters": {
-        "additionalProperties": false,
-        "properties": {
-          "layer_name": {
-            "type": "string",
-            "description": "The name of the layer to animate (e.g., 'SWOT freeboard', 'ICESat-2 thickness')"
-          },
-          "time_start": {
-            "type": "string",
-            "description": "Start time for animation in ISO format (e.g., '2024-01-01'). Defaults to '2024-01-01'."
-          },
-          "time_end": {
-            "type": "string",
-            "description": "End time for animation in ISO format (e.g., '2024-12-31'). Defaults to '2024-12-31'."
-          },
-          "interval": {
-            "type": "string",
-            "enum": [
-              "hourly",
-              "daily",
-              "weekly",
-              "monthly",
-              "quarterly",
-              "yearly"
-            ],
-            "description": "Time interval between frames (default 'monthly')"
-          },
-          "frame_rate": {
-            "type": "number",
-            "description": "Milliseconds per frame (default 1000ms). Lower values = faster animation."
-          },
-          "loop_mode": {
-            "type": "string",
-            "enum": [
-              "once",
-              "loop",
-              "bounce"
-            ],
-            "description": "Animation loop behavior (default 'loop')"
-          },
-          "auto_play": {
-            "type": "boolean",
-            "description": "Whether to automatically start playing the animation (default false)"
-          }
-        },
-        "required": [
-          "layer_name"
-        ],
-        "type": "object"
-      }
-    },
-    {
       "description": "Export selected data for external analysis as CSV, GeoJSON, KML, or JSON.",
       "execution": {
         "adapter": "custom",
@@ -932,24 +871,6 @@
           "type": "highlight_relative_to_mean"
         }
       }
-    },
-    {
-      "category": "temporal",
-      "name": "open_animation_tool",
-      "description": "Open the Animation Tool and provide a manual handoff for the requested layer, time range, region, and format. Copilot does not apply those panel inputs; the user must select them, draw export bounds, and start the GIF or MP4 export.",
-      "parameters": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["layer_name"],
-        "properties": {
-          "layer_name": { "type": "string", "minLength": 1, "description": "Requested layer display name included in the manual handoff; the user selects it in the panel." },
-          "start_date": { "type": "string", "description": "Optional requested ISO start date included in the handoff; it is not applied automatically." },
-          "end_date": { "type": "string", "description": "Optional requested ISO end date included in the handoff; it is not applied automatically." },
-          "region": { "type": "string", "description": "Optional requested region included in the handoff; the user still draws export bounds." },
-          "format": { "type": "string", "enum": ["gif", "mp4"], "description": "Preferred manual export format included in the handoff instructions (default: 'gif')." }
-        }
-      },
-      "execution": { "adapter": "custom", "ui": { "type": "open_animation_tool" } }
     }
   ],
   "uiProfiles": {
@@ -1024,9 +945,6 @@
     },
     "zoom_view": {
       "kind": "zoom_view"
-    },
-    "open_animation_tool": {
-      "kind": "render_open_animation_tool"
     }
   },
   "version": "1.0.0"

@@ -8,6 +8,7 @@ import {
     normalizeRendererResult,
     resolveFinalAssistantText,
     sanitizeErrorMessage,
+    sanitizeToolData,
     userFacingAgentError,
 } from '../agentProtocol'
 
@@ -234,6 +235,47 @@ test.describe('@unit AgentChat response protocol', () => {
         expect(serialized).not.toContain('hunter2')
         expect(serialized).not.toContain('token=secret')
         expect(result.error.code).toBe('PLUGIN_ACTION_FAILED')
+    })
+
+    test('recursively redacts values stored under sensitive field names', () => {
+        const safe = sanitizeToolData({
+            apiKey: 'top-level-api-key',
+            nested: {
+                Authorization: 'Bearer nested-token',
+                safe: 'visible',
+                items: [
+                    { refresh_token: 'refresh-secret', count: 2 },
+                    {
+                        metadata: {
+                            clientSecret: 'client-secret',
+                            tokenCount: 4,
+                        },
+                    },
+                ],
+            },
+        })
+
+        expect(safe).toEqual({
+            apiKey: '[redacted]',
+            nested: {
+                Authorization: '[redacted]',
+                safe: 'visible',
+                items: [
+                    { refresh_token: '[redacted]', count: 2 },
+                    {
+                        metadata: {
+                            clientSecret: '[redacted]',
+                            tokenCount: 4,
+                        },
+                    },
+                ],
+            },
+        })
+        const serialized = JSON.stringify(safe)
+        expect(serialized).not.toContain('top-level-api-key')
+        expect(serialized).not.toContain('nested-token')
+        expect(serialized).not.toContain('refresh-secret')
+        expect(serialized).not.toContain('client-secret')
     })
 
     test('maps malformed responses to a useful user-facing message', () => {

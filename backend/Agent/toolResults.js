@@ -7,6 +7,29 @@ const MAX_COLLECTION_ITEMS = 64;
 const MAX_RESULT_STRING = 4000;
 const TOOL_NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
+const SENSITIVE_FIELD_NAMES = new Set([
+  "apikey",
+  "xapikey",
+  "token",
+  "authtoken",
+  "accesstoken",
+  "refreshtoken",
+  "idtoken",
+  "secret",
+  "clientsecret",
+  "password",
+  "passwd",
+  "privatekey",
+  "signature",
+  "sig",
+  "credential",
+  "credentials",
+  "authorization",
+  "proxyauthorization",
+  "cookie",
+  "setcookie",
+]);
+
 function validationError(message) {
   const error = new Error(message);
   error.code = "InvalidToolResults";
@@ -29,6 +52,13 @@ function redactSensitiveText(value, maxLength = MAX_RESULT_STRING) {
     .replace(/\n\s*at\s+[^\n]+(?=\n|$)/g, "")
     .trim()
     .slice(0, maxLength);
+}
+
+function isSensitiveFieldName(value) {
+  const normalized = String(value || "")
+    .replace(/[^A-Za-z0-9]/g, "")
+    .toLowerCase();
+  return SENSITIVE_FIELD_NAMES.has(normalized);
 }
 
 function cleanString(value, field, maxLength = MAX_RESULT_STRING) {
@@ -84,6 +114,10 @@ function sanitizeJsonValue(value, depth = 0, seen = new WeakSet()) {
     if (["__proto__", "prototype", "constructor"].includes(key)) continue;
     if (key.length > 128) {
       throw validationError("Tool result field names may not exceed 128 characters.");
+    }
+    if (isSensitiveFieldName(key)) {
+      result[key] = "[redacted]";
+      continue;
     }
     result[key] = sanitizeJsonValue(entry, depth + 1, seen);
   }

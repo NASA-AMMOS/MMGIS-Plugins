@@ -12,6 +12,29 @@ export class AgentResponseError extends Error {
     }
 }
 
+const SENSITIVE_FIELD_NAMES = new Set([
+    'apikey',
+    'xapikey',
+    'token',
+    'authtoken',
+    'accesstoken',
+    'refreshtoken',
+    'idtoken',
+    'secret',
+    'clientsecret',
+    'password',
+    'passwd',
+    'privatekey',
+    'signature',
+    'sig',
+    'credential',
+    'credentials',
+    'authorization',
+    'proxyauthorization',
+    'cookie',
+    'setcookie',
+])
+
 function cleanText(value) {
     return typeof value === 'string' ? value.trim() : ''
 }
@@ -31,6 +54,13 @@ function sanitizeSensitiveText(value) {
             /\b(api[_-]?key|token|secret|password|signature|sig|credential)\s*[:=]\s*[^\s,;]+/gi,
             '$1=[redacted]'
         )
+}
+
+function isSensitiveFieldName(value) {
+    const normalized = String(value || '')
+        .replace(/[^A-Za-z0-9]/g, '')
+        .toLowerCase()
+    return SENSITIVE_FIELD_NAMES.has(normalized)
 }
 
 export function sanitizeErrorMessage(
@@ -97,6 +127,11 @@ export function sanitizeToolData(value, depth = 0, seen = new WeakSet()) {
     Object.keys(value)
         .slice(0, 50)
         .forEach((key) => {
+            if (['__proto__', 'prototype', 'constructor'].includes(key)) return
+            if (isSensitiveFieldName(key)) {
+                result[key] = '[redacted]'
+                return
+            }
             const next = sanitizeToolData(value[key], depth + 1, seen)
             if (next !== undefined) result[key] = next
         })

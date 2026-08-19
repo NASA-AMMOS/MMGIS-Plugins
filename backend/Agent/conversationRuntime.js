@@ -7,6 +7,16 @@ const RUNTIME_CONVERSATION_TTL_MS = 60 * 60 * 1000;
 const store = new Map();
 
 function requestIdentity(req) {
+  const apiAuthIdentity =
+    typeof req?.apiAuthIdentity === "string"
+      ? req.apiAuthIdentity
+          .replace(/[\u0000-\u001f\u007f]/g, "")
+          .trim()
+      : "";
+  if (apiAuthIdentity) {
+    return `api|${apiAuthIdentity}`.slice(0, 300);
+  }
+
   const user =
     (typeof req?.user === "string" && req.user) ||
     (typeof req?.session?.user === "string" && req.session.user) ||
@@ -15,7 +25,7 @@ function requestIdentity(req) {
     (typeof req?.sessionID === "string" && req.sessionID) ||
     (typeof req?.session?.id === "string" && req.session.id) ||
     "";
-  return `${user}|${session}`.slice(0, 300);
+  return `session|${user}|${session}`.slice(0, 300);
 }
 
 function prune(now = Date.now()) {

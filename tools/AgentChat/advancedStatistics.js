@@ -6,14 +6,13 @@ import {
     findLayerMatch,
     resolveArea,
     createAreaUnresolvedError,
-    drawAreaHighlight,
 } from './rendererUtils.js'
 import {
     calculateLocalBasicStats,
     sampleRaster,
     summarizeValues,
 } from './localAnalytics.js'
-import { getLayerTimeMetadata, detectCadence } from './timeUtils.js'
+import { getLayerTimeMetadata } from './timeUtils.js'
 import {
     pairAlignedRasterValues,
     generateUtcTimePoints,

@@ -1,10 +1,27 @@
 import { test, expect } from "@playwright/test";
+import fs from "fs";
+import path from "path";
 import Ajv from "ajv";
 import {
+  RUNTIME_CAPABILITY_TRANSPORT_VERSION,
+  MAX_RUNTIME_CAPABILITIES,
+  MAX_CAPABILITY_NAME,
+  MAX_SCHEMA_DEPTH,
+  MAX_SCHEMA_PROPERTIES,
+  MAX_SCHEMA_PROPERTY_NAME,
+  MAX_ENUM_VALUES,
+  MAX_ANALYTICS_VALUES,
   sanitizeRuntimeCapabilities,
   mergeToolRegistries,
 } from "../capabilities";
 import { formatToolDescription } from "../provider";
+
+const contractFixture = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, "fixtures/runtime-capability-transport.v1.json"),
+    "utf8",
+  ),
+);
 
 test.describe("@unit runtime Copilot capabilities", () => {
   const runtimeDescriptor = {
@@ -36,7 +53,6 @@ test.describe("@unit runtime Copilot capabilities", () => {
       operations: ["statistics", "mean", "threshold"],
       dataKinds: ["scalar-raster", "numeric-grid"],
       requiresScalar: true,
-      predicate: "never preserve executable applicability code",
     },
   };
 
@@ -54,7 +70,6 @@ test.describe("@unit runtime Copilot capabilities", () => {
       dataKinds: ["scalar-raster", "numeric-grid"],
       requiresScalar: true,
     });
-    expect(tool.analytics.predicate).toBeUndefined();
     const validate = new Ajv({ strict: false }).compile(tool.parameters);
     expect(validate({ region: "current view", threshold: 5 })).toBe(true);
     expect(validate({ threshold: 5 })).toBe(false);
@@ -89,27 +104,77 @@ test.describe("@unit runtime Copilot capabilities", () => {
     expect(merged.uiProfiles).toEqual(staticRegistry.uiProfiles);
   });
 
-  test("drops invalid names and strips executable or risky schema fields", () => {
-    const tools = sanitizeRuntimeCapabilities([
-      { ...runtimeDescriptor, name: "bad tool name" },
-      {
-        ...runtimeDescriptor,
-        name: "safe_plugin__action",
-        parameters: {
-          type: "object",
-          properties: {
-            value: {
-              type: "string",
-              pattern: "(a+)+$",
-              $ref: "https://example.invalid/schema",
+  test("preserves the versioned host/Agent transport fixture without schema drift", () => {
+    expect(contractFixture.version).toBe(RUNTIME_CAPABILITY_TRANSPORT_VERSION);
+    expect(contractFixture.limits).toEqual({
+      actions: MAX_RUNTIME_CAPABILITIES,
+      publicActionId: MAX_CAPABILITY_NAME,
+      schemaDepth: MAX_SCHEMA_DEPTH,
+      schemaProperties: MAX_SCHEMA_PROPERTIES,
+      propertyName: MAX_SCHEMA_PROPERTY_NAME,
+      enumValues: MAX_ENUM_VALUES,
+      analyticsValues: MAX_ANALYTICS_VALUES,
+    });
+
+    const [tool] = sanitizeRuntimeCapabilities([
+      contractFixture.acceptedDescriptor,
+    ]);
+    expect(tool.parameters).toEqual(
+      contractFixture.acceptedDescriptor.parameters,
+    );
+    expect(tool.analytics).toEqual(
+      contractFixture.acceptedDescriptor.analytics,
+    );
+
+    const validate = new Ajv({ strict: false }).compile(tool.parameters);
+    expect(
+      validate({
+        mode: "safe",
+        fixed: "transport-v1",
+        tags: ["alpha", "beta"],
+        attempt: 2,
+      }),
+    ).toBe(true);
+    expect(
+      validate({
+        mode: "safe",
+        fixed: "wrong",
+        tags: ["duplicate", "duplicate"],
+      }),
+    ).toBe(false);
+  });
+
+  test("rejects incompatible descriptors instead of silently weakening them", () => {
+    expect(() =>
+      sanitizeRuntimeCapabilities([
+        { ...runtimeDescriptor, name: "bad tool name" },
+      ]),
+    ).toThrow(/portable public action id/i);
+    expect(() =>
+      sanitizeRuntimeCapabilities([
+        {
+          ...runtimeDescriptor,
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              value: { type: "string", pattern: "(a+)+$" },
             },
           },
         },
-      },
-    ]);
-    expect(tools).toHaveLength(1);
-    expect(tools[0].parameters.properties.value.pattern).toBeUndefined();
-    expect(tools[0].parameters.properties.value.$ref).toBeUndefined();
+      ]),
+    ).toThrow(/unsupported transport keyword "pattern"/i);
+    expect(() =>
+      sanitizeRuntimeCapabilities([
+        {
+          ...runtimeDescriptor,
+          analytics: {
+            ...runtimeDescriptor.analytics,
+            predicate: "never transport executable applicability code",
+          },
+        },
+      ]),
+    ).toThrow(/predicate.*transport contract/i);
   });
 
   test("puts category, plugin, and parameter requirements in the model prompt entry", () => {
@@ -124,30 +189,120 @@ test.describe("@unit runtime Copilot capabilities", () => {
     expect(text).toContain('"minimum":-10');
   });
 
-  test("bounds analytics applicability metadata and drops executable fields", () => {
+  test("aligns host cardinality limits and rejects over-limit descriptors", () => {
+    const operations = Array.from(
+      { length: MAX_ANALYTICS_VALUES },
+      (_, index) => `operation-${index}`,
+    );
     const [tool] = sanitizeRuntimeCapabilities([
       {
         ...runtimeDescriptor,
         analytics: {
-          operations: Array.from({ length: 30 }, (_, index) =>
-            `operation-${index}`,
-          ),
-          data_kinds: ["scalar-raster", "scalar-raster", "vector-feature"],
-          requiresScalar: "yes",
-          supports: () => true,
-          execute: "arbitrary code",
+          operations,
+          data_kinds: ["scalar-raster", "vector-feature"],
+          requiresScalar: true,
         },
       },
     ]);
-    expect(tool.analytics.operations).toHaveLength(16);
+    expect(tool.analytics.operations).toEqual(operations);
     expect(tool.analytics.dataKinds).toEqual([
       "scalar-raster",
       "vector-feature",
     ]);
-    expect(Object.keys(tool.analytics).sort()).toEqual([
-      "dataKinds",
-      "operations",
+    expect(tool.analytics.requiresScalar).toBe(true);
+
+    expect(() =>
+      sanitizeRuntimeCapabilities(
+        Array.from({ length: MAX_RUNTIME_CAPABILITIES + 1 }, (_, index) => ({
+          ...runtimeDescriptor,
+          name: `plugin_action_${index}`,
+        })),
+      ),
+    ).toThrow(/at most 128/i);
+    expect(() =>
+      sanitizeRuntimeCapabilities([
+        {
+          ...runtimeDescriptor,
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              mode: {
+                type: "integer",
+                enum: Array.from(
+                  { length: MAX_ENUM_VALUES + 1 },
+                  (_, index) => index,
+                ),
+              },
+            },
+          },
+        },
+      ]),
+    ).toThrow(/enum must contain 1 to 128/i);
+    expect(() =>
+      sanitizeRuntimeCapabilities([
+        {
+          ...runtimeDescriptor,
+          analytics: {
+            operations: Array.from(
+              { length: MAX_ANALYTICS_VALUES + 1 },
+              (_, index) => `operation-${index}`,
+            ),
+          },
+        },
+      ]),
+    ).toThrow(/at most 32/i);
+  });
+
+  test("preserves 128-character property names and rejects deeper or longer schemas", () => {
+    const maximumPropertyName = "p".repeat(MAX_SCHEMA_PROPERTY_NAME);
+    const [tool] = sanitizeRuntimeCapabilities([
+      {
+        ...runtimeDescriptor,
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            [maximumPropertyName]: { type: "string" },
+          },
+        },
+      },
     ]);
+    expect(tool.parameters.properties[maximumPropertyName]).toEqual({
+      type: "string",
+    });
+
+    expect(() =>
+      sanitizeRuntimeCapabilities([
+        {
+          ...runtimeDescriptor,
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              [`${maximumPropertyName}x`]: { type: "string" },
+            },
+          },
+        },
+      ]),
+    ).toThrow(/unsafe field name/i);
+
+    let tooDeep = { type: "string" };
+    for (let depth = 0; depth <= MAX_SCHEMA_DEPTH; depth += 1) {
+      tooDeep = { type: "array", items: tooDeep };
+    }
+    expect(() =>
+      sanitizeRuntimeCapabilities([
+        {
+          ...runtimeDescriptor,
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: { nested: tooDeep },
+          },
+        },
+      ]),
+    ).toThrow(/depth limit of 12/i);
   });
 
   test("preserves false requiresScalar metadata without requiring list fields", () => {

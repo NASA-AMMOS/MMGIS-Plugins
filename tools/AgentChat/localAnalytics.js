@@ -508,10 +508,6 @@ export async function calculateLocalBasicStats(layerMatch, area, options = {}) {
         unit: context.scalarTransform?.unit || null,
         value_expression: context.scalarTransform?.expression || null,
         valid_range: context.scalarTransform?.validRange || null,
-        sample_count: context.sampleCount,
-        population_count: context.populationCount,
-        population_coverage: context.populationCoverage,
-        is_sampled: context.isSampled,
         geometry: context.geometry,
         requireMask: context.requireMask,
     }

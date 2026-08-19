@@ -68,6 +68,53 @@ test.describe("@unit Copilot continuation tool results", () => {
     expect(scrubbed).not.toContain("stack.js");
   });
 
+  test("recursively redacts values stored under sensitive field names", () => {
+    const [result] = sanitizeToolResults([
+      {
+        tool: "runtime_action",
+        ok: true,
+        data: {
+          apiKey: "top-level-api-key",
+          nested: {
+            Authorization: "Bearer nested-token",
+            safe: "visible",
+            items: [
+              { refresh_token: "refresh-secret", count: 2 },
+              {
+                metadata: {
+                  clientSecret: "client-secret",
+                  tokenCount: 4,
+                },
+              },
+            ],
+          },
+        },
+      },
+    ]);
+
+    expect(result.data).toEqual({
+      apiKey: "[redacted]",
+      nested: {
+        Authorization: "[redacted]",
+        safe: "visible",
+        items: [
+          { refresh_token: "[redacted]", count: 2 },
+          {
+            metadata: {
+              clientSecret: "[redacted]",
+              tokenCount: 4,
+            },
+          },
+        ],
+      },
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("top-level-api-key");
+    expect(serialized).not.toContain("nested-token");
+    expect(serialized).not.toContain("refresh-secret");
+    expect(serialized).not.toContain("client-secret");
+  });
+
   test("rejects malformed, oversized, and non-JSON result data", () => {
     expect(() => sanitizeToolResults([])).toThrow(/non-empty array/i);
     expect(() =>

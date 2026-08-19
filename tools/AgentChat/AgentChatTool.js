@@ -17,6 +17,11 @@ import {
 } from './actionArgumentPolicy'
 import { safeCitationUrl } from './safeUrl'
 import { runConversationTurn } from './conversationTurn'
+import {
+    closeAgentChatThroughController,
+    createAgentLifecycle,
+    isAgentCancellationError,
+} from './agentLifecycle'
 import { scopedAgentStorageKey, discardUnscopedAgentState } from './storageKeys'
 import { getCurrentMission } from './rendererUtils'
 import {
@@ -127,6 +132,7 @@ function interfaceWithMMGIS() {
         }
     } catch (_) {}
 
+    const lifecycle = createAgentLifecycle()
     const state = {
         toolRegistry: null,
         staticToolRegistry: null,
@@ -481,6 +487,7 @@ function interfaceWithMMGIS() {
         // were built before those capabilities were discoverable.
         ensureRegistry({ refreshRuntime: true })
             .then(() => {
+                if (lifecycle.isDisposed()) return
                 state.welcomeSuggestions = null
                 state.contextualSuggestions = null
                 state.contextualSuggestionsAt = null
@@ -563,6 +570,13 @@ function interfaceWithMMGIS() {
     `
     }
 
+    function closeAgentChat() {
+        closeAgentChatThroughController(
+            window.ToolController_,
+            () => AgentChatTool.destroy()
+        )
+    }
+
     function wireHeaderControls(panel) {
         panel
             .querySelector('#agentChatDemoPlay')
@@ -571,16 +585,7 @@ function interfaceWithMMGIS() {
             .querySelector('#agentChatClose')
             ?.addEventListener('click', () => {
                 const toRestore = state.lastFocusedEl
-                // Route through ToolController_ so MMGIS updates the tool's
-                // on/off state (activeSeparatedTools, UI store, toggle event);
-                // it calls our destroy() internally. Fall back to destroy() on
-                // older core that lacks closeTool.
-                const controller = window.ToolController_
-                if (controller && typeof controller.closeTool === 'function') {
-                    controller.closeTool('AgentChat')
-                } else {
-                    AgentChatTool.destroy()
-                }
+                closeAgentChat()
                 setTimeout(() => {
                     if (toRestore && typeof toRestore.focus === 'function')
                         toRestore.focus()
@@ -712,8 +717,7 @@ function interfaceWithMMGIS() {
             }
             if (e.key === 'Escape') {
                 const toRestore = state.lastFocusedEl
-                // Properly destroy the tool to update made status and button state
-                AgentChatTool.destroy()
+                closeAgentChat()
                 setTimeout(() => {
                     if (toRestore && typeof toRestore.focus === 'function')
                         toRestore.focus()
@@ -762,10 +766,18 @@ function interfaceWithMMGIS() {
             let entry = null
             const turn = await runConversationTurn({
                 originalMessage: msg,
-                requestInitial: () => callAgent(msg),
-                executeActions: (actions) => exec(actions, entry),
+                requestInitial: () =>
+                    lifecycle.runRequest(requestId, () =>
+                        callAgent(msg, requestId)
+                    ),
+                executeActions: (actions) =>
+                    lifecycle.runRequest(requestId, () =>
+                        exec(actions, entry, requestId)
+                    ),
                 requestContinuation: (response, toolResults) =>
-                    continueAgent(msg, response, toolResults),
+                    lifecycle.runRequest(requestId, () =>
+                        continueAgent(msg, response, toolResults, requestId)
+                    ),
                 resolveFinalText: resolveFinalAssistantText,
                 maxRounds: MAX_TOOL_ROUNDS,
                 onInitialResponse: (res) => {
@@ -796,6 +808,7 @@ function interfaceWithMMGIS() {
                         entry.citations = res.citations
                 },
             })
+            lifecycle.assertRequestActive(requestId)
             if (!entry)
                 throw new Error('Agent turn did not create an assistant entry.')
             if (turn.continuationError) {
@@ -818,6 +831,7 @@ function interfaceWithMMGIS() {
             renderMessages()
             scrollTranscript()
         } catch (err) {
+            if (isAgentCancellationError(err)) return
             console.error('AgentChat request failed', err)
             const message = userFacingAgentError(err)
             pushMessage({
@@ -834,14 +848,17 @@ function interfaceWithMMGIS() {
                 },
             })
         } finally {
-            endThinking(requestId)
-            state.sendBtn?.removeAttribute('data-loading')
-            input.removeAttribute('disabled')
-            input.focus()
+            if (lifecycle.isRequestActive(requestId)) {
+                endThinking(requestId)
+                state.sendBtn?.removeAttribute('data-loading')
+                input.removeAttribute('disabled')
+                input.focus()
+            }
         }
     }
 
-    async function callAgent(message) {
+    async function callAgent(message, requestId) {
+        lifecycle.assertRequestActive(requestId)
         if (!getCurrentMission()) {
             return {
                 reply: 'No active mission is open. Open an MMGIS mission and try again.',
@@ -855,20 +872,24 @@ function interfaceWithMMGIS() {
         state.toolRegistry = null
         if (state.conversationId) payload.conversationId = state.conversationId
         const context = await buildAgentContext()
+        lifecycle.assertRequestActive(requestId)
         if (context) payload.context = context
         // The current user entry was already pushed for immediate rendering;
         // omit it here because `message` is appended separately by the agent.
         payload.history = buildAgentHistory(state.history, message)
-        return postAgent('', payload)
+        return postAgent('', payload, requestId)
     }
 
-    async function postAgent(path, payload) {
+    async function postAgent(path, payload, requestId) {
         const res = await fetch(agentApiUrl(path), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
+            signal: lifecycle.requestSignal(requestId),
         })
+        lifecycle.assertRequestActive(requestId)
         const responseText = await res.text()
+        lifecycle.assertRequestActive(requestId)
         let responsePayload = responseText
         if (responseText.trim()) {
             try {
@@ -901,15 +922,23 @@ function interfaceWithMMGIS() {
         )
     }
 
-    async function continueAgent(originalMessage, response, toolResults) {
+    async function continueAgent(
+        originalMessage,
+        response,
+        toolResults,
+        requestId
+    ) {
+        lifecycle.assertRequestActive(requestId)
+        const context = await buildAgentContext()
+        lifecycle.assertRequestActive(requestId)
         return postAgent('/continue', {
             conversationId:
                 state.conversationId || response?.conversationId || null,
             responseId: responseIdOf(response),
             originalMessage,
             toolResults,
-            context: await buildAgentContext(),
-        })
+            context,
+        }, requestId)
     }
 
     function renderMessages() {
@@ -1205,7 +1234,8 @@ function interfaceWithMMGIS() {
     window.__mmgisAgentChatScroll = scrollTranscript
 
     function beginThinking() {
-        const id = ++state.requestCounter
+        const { id } = lifecycle.beginRequest()
+        state.requestCounter = id
         state.activeRequestId = id
         setThinking(true)
         return id
@@ -1213,6 +1243,7 @@ function interfaceWithMMGIS() {
 
     function endThinking(id) {
         if (state.activeRequestId !== id) return
+        if (!lifecycle.finishRequest(id)) return
         state.activeRequestId = null
         setThinking(false)
     }
@@ -1358,26 +1389,32 @@ function interfaceWithMMGIS() {
 
     // ————— Tool registry + execution ————————————————————————————————————
 
+    function handleToolRegistryMessage(event) {
+        if (lifecycle.isDisposed()) return
+        try {
+            const msg = JSON.parse(event.data)
+            if (msg.type === 'toolRegistryChanged') {
+                state.toolRegistry = null
+                state.staticToolRegistry = null
+                ensureRegistry()
+            }
+        } catch (_) {}
+    }
+
     function listenForToolRegistryChanges() {
         try {
             // Access the main MMGIS WebSocket from the essence module
             const checkWs = () => {
+                if (lifecycle.isDisposed()) return
                 const ws = window.mmgisEssence?.ws || window.essence?.ws
                 if (ws && ws.readyState === 1) {
-                    ws.addEventListener('message', (event) => {
-                        try {
-                            const msg = JSON.parse(event.data)
-                            if (msg.type === 'toolRegistryChanged') {
-                                // Invalidate cached registry and reload
-                                state.toolRegistry = null
-                                state.staticToolRegistry = null
-                                ensureRegistry()
-                            }
-                        } catch (_) {}
-                    })
+                    lifecycle.attachRegistrySocket(
+                        ws,
+                        handleToolRegistryMessage
+                    )
                 } else {
                     // Retry after a short delay if WebSocket isn't ready yet
-                    setTimeout(checkWs, 3000)
+                    lifecycle.scheduleRegistryRetry(checkWs, 3000)
                 }
             }
             checkWs()
@@ -1434,8 +1471,10 @@ function interfaceWithMMGIS() {
         return state.toolRegistry
     }
 
-    async function exec(actions, entry) {
+    async function exec(actions, entry, requestId) {
+        lifecycle.assertRequestActive(requestId)
         await ensureRegistry()
+        lifecycle.assertRequestActive(requestId)
         refreshLayerIndex()
         const map = new Map(
             (state.toolRegistry?.tools || []).map((t) => [t.name, t])
@@ -1444,6 +1483,7 @@ function interfaceWithMMGIS() {
         const queue = []
 
         for (const a of actions || []) {
+            lifecycle.assertRequestActive(requestId)
             if (!a || typeof a !== 'object') continue
             const spec = map.get(a.tool)
             const callId = a.callId || a.call_id || a.toolCallId || a.id || null
@@ -1504,13 +1544,17 @@ function interfaceWithMMGIS() {
         }
 
         for (const item of queue) {
+            lifecycle.assertRequestActive(requestId)
             const a = item.action
             const x = item.spec.execution || {}
 
             if (x.adapter === 'mmgisAPI') {
-                const r = await execMmgisApi(x, a, entry)
+                const r = await execMmgisApi(x, a, entry, requestId)
+                lifecycle.assertRequestActive(requestId)
                 toolResults.push(r)
             } else if (x.adapter === 'pluginAction') {
+                const actionContext = (await buildAgentContext()) || {}
+                lifecycle.assertRequestActive(requestId)
                 const result = await executeRegisteredCopilotAction(
                     window.mmgisAPI,
                     {
@@ -1518,8 +1562,12 @@ function interfaceWithMMGIS() {
                         callId: a.callId,
                     },
                     a.args || {},
-                    await buildAgentContext()
+                    {
+                        ...actionContext,
+                        signal: lifecycle.requestSignal(requestId),
+                    }
                 )
+                lifecycle.assertRequestActive(requestId)
                 if (!result.ok) {
                     addFailure(entry, result.message, null, {
                         tool: a.tool,
@@ -1543,15 +1591,20 @@ function interfaceWithMMGIS() {
                 if (kind && typeof RENDERERS[kind] === 'function') {
                     const appendedLines = []
                     const previousAppend = window.__mmgisAgentChatAppend
-                    window.__mmgisAgentChatAppend = (text) => {
+                    const requestAppend = (text) => {
                         if (text != null && String(text).trim())
                             appendedLines.push(String(text))
                     }
+                    window.__mmgisAgentChatAppend = requestAppend
                     try {
                         const rawResult = await RENDERERS[kind](
-                            { originalMessage: entry?.originalQuery },
+                            {
+                                originalMessage: entry?.originalQuery,
+                                signal: lifecycle.requestSignal(requestId),
+                            },
                             a.args || {}
                         )
+                        lifecycle.assertRequestActive(requestId)
                         const normalizedResult = normalizeRendererResult(
                             a.tool,
                             a.callId,
@@ -1562,6 +1615,7 @@ function interfaceWithMMGIS() {
                             pushUndo(pendingZoomUndo)
                         toolResults.push(normalizedResult)
                     } catch (e) {
+                        if (isAgentCancellationError(e)) throw e
                         console.error(`AgentChat renderer "${kind}" failed`, e)
                         const safeMessage = sanitizeErrorMessage(
                             e,
@@ -1582,7 +1636,13 @@ function interfaceWithMMGIS() {
                             })
                         )
                     } finally {
-                        window.__mmgisAgentChatAppend = previousAppend
+                        if (window.__mmgisAgentChatAppend === requestAppend) {
+                            if (lifecycle.isRequestActive(requestId)) {
+                                window.__mmgisAgentChatAppend = previousAppend
+                            } else {
+                                delete window.__mmgisAgentChatAppend
+                            }
+                        }
                     }
                 } else {
                     const msg = kind
@@ -1623,10 +1683,12 @@ function interfaceWithMMGIS() {
                 )
             }
         }
+        lifecycle.assertRequestActive(requestId)
         return toolResults
     }
 
-    async function execMmgisApi(desc, action, entry) {
+    async function execMmgisApi(desc, action, entry, requestId) {
+        lifecycle.assertRequestActive(requestId)
         const displayName = action.args?.name
         const matches = Array.isArray(action.__layerMatches)
             ? action.__layerMatches
@@ -1721,6 +1783,7 @@ function interfaceWithMMGIS() {
         if (typeof fn === 'function') {
             try {
                 apiResult = await fn.apply(window.mmgisAPI, args)
+                lifecycle.assertRequestActive(requestId)
                 const targetId = targetMatch?.uuid || args[0] || null
                 const targetName =
                     targetMatch?.layer?.name || targetMatch?.resolved || null
@@ -1776,10 +1839,13 @@ function interfaceWithMMGIS() {
                     await hideConflictingLayersForTarget(
                         targetMatch?.uuid || args[0],
                         entry?.originalQuery || state.lastUserQuery || '',
-                        entry
+                        entry,
+                        requestId
                     )
+                    lifecycle.assertRequestActive(requestId)
                 }
             } catch (e) {
+                if (isAgentCancellationError(e)) throw e
                 addFailure(
                     entry,
                     `API method "${method}" threw an error: ${
@@ -2038,7 +2104,12 @@ function interfaceWithMMGIS() {
         return found ? found.display : String(id)
     }
 
-    async function hideConflictingLayersForTarget(targetId, queryText, entry) {
+    async function hideConflictingLayersForTarget(
+        targetId,
+        queryText,
+        entry,
+        requestId
+    ) {
         // Mission-specific conflict rules can be provided via window.mmgisAgentLayerConflicts:
         // An array of { trigger: /regex/, conflicts: /regex/ } objects.
         // If no mission provides rules, we skip conflict resolution entirely.
@@ -2062,6 +2133,7 @@ function interfaceWithMMGIS() {
         const turnedOff = []
 
         for (const id of Object.keys(visible)) {
+            lifecycle.assertRequestActive(requestId)
             if (!visible[id]) continue
             if (String(id) === String(targetId)) continue
             const cfg = configs[id] || {}
@@ -2082,6 +2154,7 @@ function interfaceWithMMGIS() {
             if (!shouldDisable) continue
             try {
                 await api.toggleLayer(id, false)
+                lifecycle.assertRequestActive(requestId)
                 turnedOff.push({
                     id,
                     name:
@@ -2090,7 +2163,9 @@ function interfaceWithMMGIS() {
                         cfg.name ||
                         String(id),
                 })
-            } catch (_) {}
+            } catch (error) {
+                if (isAgentCancellationError(error)) throw error
+            }
         }
 
         if (turnedOff.length && entry) {
@@ -2298,6 +2373,7 @@ function interfaceWithMMGIS() {
             queries = parsed
         } catch (_) {}
 
+        if (lifecycle.isDisposed()) return
         state.demoQueries = queries
         state.demoIndex = clampDemoIndex(
             state.demoIndex,
@@ -2518,6 +2594,10 @@ function interfaceWithMMGIS() {
     // ————— Teardown ————————————————————————————————————————————————
 
     function cleanup() {
+        lifecycle.dispose()
+        state.activeRequestId = null
+        state.isThinking = false
+
         try {
             if (state.layerVisibilityListener) {
                 document.removeEventListener(

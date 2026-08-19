@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { normalizeName, scoreCandidate } from '../utils/text';
 
-test.describe('Agent utils/text', () => {
+test.describe('@unit Agent utils/text', () => {
   test('normalizeName lowercases and collapses non-alphanumeric runs', () => {
     expect(normalizeName('SWOT Binned Freeboard!')).toBe('swot binned freeboard');
     expect(normalizeName('  multiple   spaces  ')).toBe('multiple spaces');

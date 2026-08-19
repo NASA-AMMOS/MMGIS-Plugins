@@ -173,7 +173,7 @@ test.describe('@unit Agent registryManager', () => {
     expect(JSON.stringify(byName.threshold_highlight)).not.toMatch(/signific/i);
   });
 
-  test('describes animation as a verified UI handoff and omits optional plugin actions', () => {
+  test('defers animation actions until the host exposes a public tool-opening facade', () => {
     const registry = loadFileRegistry();
     const byName = Object.fromEntries(
       registry.tools.map((tool) => [tool.name, tool]),
@@ -182,30 +182,20 @@ test.describe('@unit Agent registryManager', () => {
       path.resolve(__dirname, '../../../tools/AgentChat/renderers.js'),
       'utf8',
     );
-    const animationStart = rendererSource.indexOf(
-      'export async function render_open_animation_tool',
+    const rendererMap = rendererSource.slice(
+      rendererSource.indexOf('const RENDERERS ='),
     );
-    const renderersEnd = rendererSource.indexOf('const RENDERERS =');
-    const animationSource = rendererSource.slice(animationStart, renderersEnd);
+    const providerSource = fs.readFileSync(
+      path.resolve(__dirname, '../provider.js'),
+      'utf8',
+    );
 
-    expect(animationSource).toContain('draw export bounds');
-    expect(animationSource).toContain('configured: false');
-    expect(animationSource).toContain('requiresManualInput: true');
-    expect(byName.open_animation_tool.description).toMatch(
-      /draw export bounds/i,
-    );
-    expect(byName.open_animation_tool.description).toMatch(
-      /does not apply those panel inputs/i,
-    );
-    expect(byName.open_animation_tool.description).not.toMatch(
-      /one click|pre-configured/i,
-    );
-    expect(
-      byName.open_animation_tool.parameters.additionalProperties,
-    ).toBe(false);
-    expect(
-      byName.open_animation_tool.parameters.properties.format.description,
-    ).toMatch(/manual export|handoff/i);
+    expect(byName.time_series_animation).toBeUndefined();
+    expect(byName.open_animation_tool).toBeUndefined();
+    expect(registry.uiProfiles?.open_animation_tool).toBeUndefined();
+    expect(rendererMap).not.toMatch(/time_series_animation\s*:/);
+    expect(rendererMap).not.toMatch(/open_animation_tool\s*:/);
+    expect(providerSource).not.toContain('"tool":"open_animation_tool"');
 
     expect(byName.run_analysis).toBeUndefined();
     expect(rendererSource).not.toContain('render_run_analysis');

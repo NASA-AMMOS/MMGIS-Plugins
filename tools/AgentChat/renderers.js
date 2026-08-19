@@ -3870,10 +3870,8 @@ const RENDERERS = {
     temporal_trends: render_temporal_trends,
     spatial_statistics: render_spatial_statistics,
     change_detection: render_change_detection,
-    time_series_animation: render_time_series_animation,
     data_export: render_data_export,
     list_analyzable_layers: list_analyzable_layers,
-    open_animation_tool: render_open_animation_tool,
 }
 
 export default RENDERERS
