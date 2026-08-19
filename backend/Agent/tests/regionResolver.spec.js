@@ -3,7 +3,7 @@ import { resolveRegion } from '../regionResolver';
 
 // These exercise resolveRegion's SPECIAL_REGIONS preset branch only, which
 // resolves synchronously without any network call — no fetch mocking needed.
-test.describe('Agent regionResolver presets', () => {
+test.describe('@unit Agent regionResolver presets', () => {
   test('resolves a named hemisphere to its bbox', async () => {
     const result = await resolveRegion('northern hemisphere');
     expect(result).toBeTruthy();

@@ -1,16 +1,16 @@
 {
   "uuid": "c3d4e5f6-a7b8-9012-cdef-123456789012",
   "id": "experimental-agent-backend",
-  "version": "5.0.14-20260526",
+  "version": "5.0.15-20260815",
   "type": "backend",
   "tier": "experimental",
   "engines": { "mmgis": ">=5.0.0" },
   "name": "Agent",
   "description": "AI Agent backend — LLM providers (Azure AI Foundry, Gemini), generic MMGIS tool registry, and REST routes exposed at /api/agent.",
   "descriptionFull": {
-    "title": "Provides a pluggable AI agent backend for MMGIS. Supports Azure AI Foundry and Google Gemini as LLM providers. Exposes a REST endpoint (POST /api/agent) consumed by the AgentChat frontend tool. Includes a tool registry for map operations (layer toggle, opacity, zoom, analysis, export, etc.) and Python-based raster analysis utilities.",
+    "title": "Provides a pluggable AI agent backend for MMGIS. Supports Azure AI Foundry and Google Gemini as LLM providers. POST /api/agent plans actions and POST /api/agent/continue accepts bounded client tool results for final or multi-step replies. Per-request runtime capability descriptors extend the static tool registry without executing client code on the server. Includes map, layer, temporal, analytics, and plugin action support.",
     "example": {
-      "LLM_PROVIDER": "(string) 'azure' or 'gemini' — selects the active LLM provider",
+      "LLM_PROVIDER": "(string) Optional 'azure' or 'gemini'; when unset the backend selects an available configured provider",
       "PROJECT_ENDPOINT": "(string) Azure AI Foundry project endpoint URL",
       "AGENT_NAME": "(string) Published Azure AI Foundry agent name",
       "AGENT_VERSION": "(string) Published Azure AI Foundry agent version",
@@ -24,29 +24,13 @@
   },
   "envs": {
     "WITH_AGENT": "(string) Set to 'true' to enable the Agent plugin; any other value disables it",
-    "LLM_PROVIDER": "(string) 'azure' or 'gemini' — selects the active LLM provider [default 'azure']",
+    "LLM_PROVIDER": "(string) Optional 'azure' or 'gemini'; when unset the backend auto-selects an available configured provider",
     "PROJECT_ENDPOINT": "(string) Azure AI Foundry project endpoint URL",
     "AGENT_NAME": "(string) Published Azure AI Foundry agent name",
     "AGENT_VERSION": "(string) Published Azure AI Foundry agent version",
     "GEMINI_API_KEY": "(string) Google Gemini API key",
     "GEMINI_MODEL": "(string) Gemini model name [default 'gemini-2.0-flash']",
     "MMGIS_PYTHON": "(string) Path to Python executable for raster analysis [default 'python3']"
-  },
-  "config": {
-    "rows": [
-      {
-        "components": [
-          {
-            "field": "variables.llmProvider",
-            "name": "LLM Provider",
-            "description": "Select the AI provider to use for agent responses.",
-            "type": "dropdown",
-            "width": 3,
-            "options": ["azure", "gemini"]
-          }
-        ]
-      }
-    ]
   },
   "dependencies": {
     "npm": {
@@ -57,7 +41,7 @@
       "ajv": "^8.17.1"
     },
     "python": {
-      "pip": ["rasterio>=1.3"]
+      "pip": ["numpy==2.1.0", "rasterio==1.5.1"]
     }
   },
   "author": "yunks128",
