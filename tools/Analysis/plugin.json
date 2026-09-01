@@ -19,7 +19,7 @@
   "hasVars": true,
   "name": "Analysis",
   "toolbarPriority": 4,
-  "mobileTool": true,
+  "worksOnMobile": true,
   "paths": {
     "AnalysisTool": "./AnalysisTool"
   },
