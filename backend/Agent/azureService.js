@@ -112,6 +112,35 @@ function responseStatus(response) {
   return response?.status || response?.error?.code || "completed";
 }
 
+/**
+ * The `output_text` convenience getter is only populated when the response's
+ * `output` array contains a `message` item with `output_text`/`text` content
+ * parts. Foundry Agents can also finish a turn having only produced
+ * `function_call`/`reasoning` output items (e.g. when the Agent has native
+ * tool-calling configured directly in the Foundry portal), in which case
+ * `output_text` is legitimately empty even though `status` is "completed".
+ * Walk the structured `output` array ourselves so we don't silently drop
+ * text that the convenience getter missed.
+ */
+function extractOutputText(response) {
+  if (typeof response?.output_text === "string" && response.output_text) {
+    return response.output_text;
+  }
+  const output = Array.isArray(response?.output) ? response.output : [];
+  const parts = [];
+  for (const item of output) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const part of content) {
+      if (typeof part?.text === "string" && part.text) {
+        parts.push(part.text);
+      } else if (typeof part?.text?.value === "string" && part.text.value) {
+        parts.push(part.text.value);
+      }
+    }
+  }
+  return parts.join("");
+}
+
 async function resolveConversation(openAIClient, conversationId, messageText) {
   if (conversationId) {
     try {
@@ -155,8 +184,7 @@ async function executeAgentRun(messageText, { threadId, keepThread } = {}) {
       { body: agentReferenceBody(cfg) },
     );
 
-    const outputText =
-      typeof response?.output_text === "string" ? response.output_text : "";
+    const outputText = extractOutputText(response);
     const status = responseStatus(response);
     if (status && status !== "completed" && status !== "succeeded") {
       const failureReason =
@@ -166,6 +194,23 @@ async function executeAgentRun(messageText, { threadId, keepThread } = {}) {
         "AgentRunFailed";
       const err = new Error(`Azure Agent Service run failed: ${failureReason}`);
       err.code = "AzureAgentRunFailed";
+      err.run = response;
+      throw err;
+    }
+
+    if (!outputText) {
+      // The run completed but produced no message text — most likely the
+      // Agent invoked a native tool/function call (configured directly in
+      // the Foundry portal) instead of writing a text reply. We don't
+      // support server-side tool submission here, so surface a clear,
+      // diagnosable error instead of returning an empty assistant message.
+      const outputTypes = Array.isArray(response?.output)
+        ? response.output.map((item) => item?.type).filter(Boolean)
+        : [];
+      const err = new Error(
+        `Azure Agent Service completed without message text (output types: ${outputTypes.join(", ") || "none"}).`,
+      );
+      err.code = "AzureAgentEmptyOutput";
       err.run = response;
       throw err;
     }

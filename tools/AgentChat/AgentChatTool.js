@@ -10,6 +10,8 @@ import TimeControl from '@basics/TimeControl_/TimeControl'
 import * as d3 from 'd3'
 import RENDERERS, {
     fast_visible_layers_time as fastVisibleLayersTime,
+    buildLayersLineText,
+    buildAnalyzableLayersText,
 } from './renderers'
 import {
     getLayerTimeMetadata,
@@ -20,6 +22,14 @@ import {
     resolveLayerSelection,
 } from './layerResolver'
 import { getCurrentMission } from './rendererUtils'
+import {
+    EMPTY_ASSISTANT_REPLY_MESSAGE,
+    resolveAssistantReply,
+} from './replyGuard'
+import {
+    detectListLayersIntent,
+    detectAnalyzableLayersIntent,
+} from './layerIntents'
 import './AgentChatTool.css'
 
 function agentApiUrl(path = '') {
@@ -847,6 +857,38 @@ function interfaceWithMMGIS() {
         const overview = detectMmgisOverviewIntent(message)
         if (overview) return handleMmgisOverviewIntent()
 
+        // "List layers" and "which layers can I analyze" are deterministic,
+        // config-driven lookups — they need no generative reasoning, so
+        // answer them straight from the live layer index instead of
+        // round-tripping through the LLM (which, being an external
+        // service, can time out, misfire, or simply be unavailable). This
+        // mirrors the existing list_layers/list_analyzable_layers tools
+        // (renderers.js) exactly — same builder functions, same live
+        // mmgisAPI-backed data — just invoked directly instead of waiting
+        // for the model to pick the tool.
+        if (detectAnalyzableLayersIntent(message)) {
+            try {
+                return { reply: buildAnalyzableLayersText() }
+            } catch (err) {
+                return {
+                    reply:
+                        err?.message ||
+                        'Unable to determine analyzable layers from the current configuration.',
+                }
+            }
+        }
+        if (detectListLayersIntent(message)) {
+            try {
+                return { reply: buildLayersLineText() }
+            } catch (err) {
+                return {
+                    reply:
+                        err?.message ||
+                        'Unable to list layers from the current configuration.',
+                }
+            }
+        }
+
         const zoomIntent = detectZoomRegionIntent(message)
         if (zoomIntent) {
             const handled = handleZoomRegionIntent(zoomIntent)
@@ -1010,11 +1052,12 @@ function interfaceWithMMGIS() {
         try {
             const handledLocally = await tryHandleLocalCommand(msg)
             if (handledLocally) {
+                const localReply = resolveAssistantReply(handledLocally.reply)
                 const entry = {
                     id: uid(),
                     role: 'assistant',
-                    text: handledLocally.reply || '',
-                    reply: handledLocally.reply || '',
+                    text: localReply,
+                    reply: localReply,
                     citations: [],
                     actions: [],
                     timestamp: new Date().toISOString(),
@@ -1024,11 +1067,18 @@ function interfaceWithMMGIS() {
                 return
             }
             const res = await callAgent(msg)
+            const resolvedReply = resolveAssistantReply(res?.reply, res?.text)
+            if (resolvedReply === EMPTY_ASSISTANT_REPLY_MESSAGE) {
+                console.warn(
+                    'AgentChat: received an empty assistant response',
+                    res
+                )
+            }
             const entry = {
                 id: uid(),
                 role: 'assistant',
-                text: res?.text || '',
-                reply: res?.reply || res?.text || '',
+                text: res?.text || resolvedReply,
+                reply: resolvedReply,
                 citations: Array.isArray(res?.citations) ? res.citations : [],
                 actions: Array.isArray(res?.actions) ? res.actions : [],
                 debug: res?.debug || {},
