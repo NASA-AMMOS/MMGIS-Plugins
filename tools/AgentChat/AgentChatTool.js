@@ -8,7 +8,9 @@
 import L_ from '@basics/Layers_/Layers_'
 import TimeControl from '@basics/TimeControl_/TimeControl'
 import * as d3 from 'd3'
-import RENDERERS from './renderers'
+import RENDERERS, { buildLayersLineText, buildAnalyzableLayersText } from './renderers'
+import { detectListLayersIntent, detectAnalyzableLayersIntent } from './layerIntents'
+import { resolveAssistantReply } from './replyGuard'
 import { getLayerTimeMetadata, formatLayerTimeAnnouncement } from './timeUtils'
 import { normalizeLayerText } from './layerResolver'
 import {
@@ -763,6 +765,21 @@ function interfaceWithMMGIS() {
         const requestId = beginThinking()
 
         try {
+            // Inventory answers use the live mission configuration, even when
+            // the model provider is unavailable. Keep #5's deterministic path.
+            const inventory = detectAnalyzableLayersIntent(msg)
+                ? buildAnalyzableLayersText
+                : detectListLayersIntent(msg) ? buildLayersLineText : null
+            if (inventory) {
+                const reply = resolveAssistantReply(inventory())
+                pushMessage({
+                    id: uid(), role: 'assistant', text: reply, reply,
+                    citations: [], actions: [],
+                    timestamp: new Date().toISOString(),
+                })
+                scrollTranscript()
+                return
+            }
             let entry = null
             const turn = await runConversationTurn({
                 originalMessage: msg,
@@ -825,8 +842,8 @@ function interfaceWithMMGIS() {
             entry.actions = turn.actions
             entry.toolResults = turn.toolResults
             entry.performed = turn.performed
-            entry.reply = turn.finalText
-            entry.text = turn.finalText
+            entry.reply = resolveAssistantReply(turn.finalText)
+            entry.text = entry.reply
             saveHistory()
             renderMessages()
             scrollTranscript()
