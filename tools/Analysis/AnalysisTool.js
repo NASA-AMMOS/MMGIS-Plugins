@@ -305,6 +305,17 @@ let AnalysisTool = {
             console.warn('Analysis Tool: API Base URL not configured. Please configure it in the mission settings.')
         }
         this.registerCopilotAction()
+
+        if (L_.UserInterface_.isMobile === true) {
+            const mapRect = document
+                .getElementById('map')
+                .getBoundingClientRect()
+            this.width = 'full'
+            // Mobile bottom-sheet detents (fractions of map height), from small to large
+            // Middle detent is the default open height
+            this.heightDetents = [0.5, 0.8, 0.9]
+            this.height = Math.round(mapRect.height * this.heightDetents[1])
+        }
     },
     finalize: function () {
         // Retry after all tools initialize in case mmgisAPI was published late.
@@ -4889,7 +4900,8 @@ function interfaceWithMMGIS(fromInit) {
         separateFromMMGIS()
     }
 
-    var tools = d3.select('#toolPanel')
+    const divID = L_.UserInterface_.isMobile === true ? '#tools' : '#toolPanel'
+    var tools = d3.select(divID)
     //Clear it
     tools.selectAll('*').remove()
     //Add a semantic container
