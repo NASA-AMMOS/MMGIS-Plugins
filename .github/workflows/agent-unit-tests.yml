@@ -57,7 +57,12 @@ jobs:
           cache-dependency-path: mmgis/package-lock.json
 
       - name: Install MMGIS and plugin dependencies
-        run: npm ci
+        # The pinned host has a ranged svgo override; npm 10 re-resolves it
+        # against the registry and rejects its own lockfile after new releases.
+        # Match the existing lock entry without regenerating the host lockfile.
+        run: |
+          npm pkg set overrides.svgo=3.3.4
+          npm ci
         working-directory: mmgis
 
       - name: Verify aggregated plugin dependencies
@@ -147,7 +152,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install MMGIS and plugin dependencies
-        run: npm ci
+        # Keep the same lockfile-compatible override as the unit job above.
+        run: |
+          npm pkg set overrides.svgo=3.3.4
+          npm ci
         working-directory: mmgis
 
       - name: Generate and verify plugin dependency manifests
