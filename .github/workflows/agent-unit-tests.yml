@@ -8,6 +8,9 @@ permissions:
   contents: read
 
 env:
+  # Tested development baseline for the unmerged host dependency below.
+  # Keep the base and overlay pinned together; advance them after #1045 merges.
+  HOST_BASE_COMMIT: "8f5cb2acf725b0b03494630cbdc96a7af53b9b9e"
   # Temporary exact pins for https://github.com/NASA-AMMOS/MMGIS/pull/1045.
   # Remove the overlay after that host dependency merges into development.
   HOST_REGISTRY_COMMIT: "a374d18fc1cf6a32e908c75d50d36ce779fa78ee"
@@ -21,11 +24,11 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout MMGIS development host
+      - name: Checkout pinned MMGIS development host
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: NASA-AMMOS/MMGIS
-          ref: development
+          ref: ${{ env.HOST_BASE_COMMIT }}
           path: mmgis
           persist-credentials: false
 
@@ -106,11 +109,11 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout MMGIS development host
+      - name: Checkout pinned MMGIS development host
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: NASA-AMMOS/MMGIS
-          ref: development
+          ref: ${{ env.HOST_BASE_COMMIT }}
           path: mmgis
           persist-credentials: false
 
