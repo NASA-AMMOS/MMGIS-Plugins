@@ -1,15 +1,16 @@
 const fs = require("fs");
 const path = require("path");
-const Ajv = require("ajv");
+const { createAgentAjv } = require("./schemaValidation");
 const router = require("./routes/agent");
+const { getAgentAuthMiddleware } = require("./auth");
+const { createLayerInfoMiddleware } = require("./missionLayerInfo");
 
-if (!process.env.WITH_AGENT || process.env.WITH_AGENT.toLowerCase() !== "true") {
-  module.exports = { onceInit: () => {}, alwaysRun: () => {} };
+const agentEnabled = process.env.WITH_AGENT?.toLowerCase() === "true";
+if (!agentEnabled) {
   let logger;
   try { logger = require(path.join(process.cwd(), "API/logger")); } catch (_) {}
   if (logger) logger("info", "Agent plugin disabled (WITH_AGENT != true). Skipping route mount.", "AgentSetup");
   else console.info("[Agent] Plugin disabled (WITH_AGENT != true). Skipping route mount.");
-  return;
 }
 
 function normalizeLayerName(value) {
@@ -154,14 +155,39 @@ function getDynamicLayerInfo(missionPath) {
         const summary = buildLayerSummary(node);
         const citation =
           node.metadata_url || node.legend || node.url || "";
+        const source =
+          node.source || node.url || node.path || node.cogUrl || node.href || "";
+        const analytics = Array.isArray(node.analytics)
+          ? node.analytics.filter((value) => typeof value === "string")
+          : Array.isArray(node.analysisCapabilities)
+            ? node.analysisCapabilities.filter((value) => typeof value === "string")
+            : [];
+        const analyzable =
+          typeof node.analyzable === "boolean"
+            ? node.analyzable
+            : analytics.length > 0
+              ? true
+              : null;
 
         items.push({
           name: name,
           summary: summary,
           citation: citation,
           type: node.type || "unknown",
+          source: source,
+          sourceType: node.sourceType || null,
           visible: node.visibility || false,
           timeEnabled: !!(node.time && node.time.enabled),
+          time: node.time && typeof node.time === "object"
+            ? {
+                enabled: !!node.time.enabled,
+                current: node.time.current || node.time.value || null,
+                start: node.time.availableStart || node.time.start || null,
+                end: node.time.availableEnd || node.time.end || null,
+              }
+            : null,
+          analyzable,
+          analysisCapabilities: analytics.slice(0, 16),
         });
       }
 
@@ -210,7 +236,6 @@ function getDynamicLayerInfo(missionPath) {
   return store;
 }
 
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const LAYER_INFO_PATH = process.env.MAIN_MISSION
   ? path.join(process.cwd(), "Missions", process.env.MAIN_MISSION, "layer_info.txt")
   : null;
@@ -220,11 +245,10 @@ let setup = {
   onceInit: (s) => {
     // Load tool registry and compile validators once
     try {
-      const registryPath = path.join(__dirname, "tool-registry.json");
-      const raw = fs.readFileSync(registryPath, "utf8");
-      const registry = JSON.parse(raw);
+      const { loadFileRegistry } = require("./registryManager");
+      const registry = loadFileRegistry();
 
-      const ajv = new Ajv({
+      const ajv = createAgentAjv({
         allErrors: true,
         strict: false,
         coerceTypes: true,
@@ -244,53 +268,33 @@ let setup = {
       s.app.locals.agentToolValidators = validators;
       s.app.locals.agentToolNames = toolNames;
     } catch (e) {
-      // If registry fails to load, keep running; routes will degrade gracefully
+      // Keep the server available, but preserve the real failure internally;
+      // an empty registry is a degraded mode that should never be silent.
+      // eslint-disable-next-line no-console
+      console.error(
+        "[Agent] Tool registry failed to load; capabilities are disabled.",
+        e,
+      );
       s.app.locals.agentToolRegistry = { tools: [] };
       s.app.locals.agentToolValidators = {};
       s.app.locals.agentToolNames = new Set();
     }
 
-    // Initialize layer info storage (will be loaded dynamically per mission)
-    s.app.locals.agentLayerInfoCache = {};
-    
-    // Middleware to load mission-specific layer info (with 5-minute TTL)
-    s.app.use((req, res, next) => {
-      const mission = req.query?.mission || req.body?.mission || process.env.MAIN_MISSION || '';
-
-      const cached = s.app.locals.agentLayerInfoCache[mission];
-      const now = Date.now();
-      const isStale =
-        !cached ||
-        !cached.loadedAt ||
-        now - new Date(cached.loadedAt).getTime() > CACHE_TTL_MS;
-
-      if (isStale) {
-        const missionPath = mission
-          ? path.join(process.cwd(), "Missions", mission)
-          : null;
-
-        if (missionPath && fs.existsSync(missionPath)) {
-          s.app.locals.agentLayerInfoCache[mission] =
-            getDynamicLayerInfo(missionPath);
-        } else if (LAYER_INFO_PATH && fs.existsSync(LAYER_INFO_PATH)) {
-          s.app.locals.agentLayerInfoCache[mission] =
-            loadLayerInfoFromDisk(LAYER_INFO_PATH);
-        } else {
-          s.app.locals.agentLayerInfoCache[mission] = { items: [], index: [], loadedAt: new Date().toISOString() };
-        }
-      }
-
-      // Set current mission's layer info
-      req.app.locals.agentLayerInfo = s.app.locals.agentLayerInfoCache[mission];
-      next();
+    // The host guard handles public AUTH=none/off mode, sessions, strict
+    // bearer parsing, long-term-token validation, and typed API failures.
+    const agentAuthMiddleware = getAgentAuthMiddleware(s);
+    const layerInfoMiddleware = createLayerInfoMiddleware({
+      loadDynamic: getDynamicLayerInfo,
+      loadStatic: loadLayerInfoFromDisk,
+      mainMission: process.env.MAIN_MISSION || "",
+      mainLayerInfoPath: LAYER_INFO_PATH,
     });
 
     // Read-only endpoint to fetch the current registry
     s.app.get(
       s.ROOT_PATH + "/api/agent/tools",
       s.checkHeadersCodeInjection,
-      s.ensureUser(), // ensureUser is a factory — call it
-      s.stopGuests, // stopGuests is the middleware itself (not a factory)
+      agentAuthMiddleware,
       s.setContentType,
       (req, res) => {
         res.status(200).json(req.app.locals.agentToolRegistry || { tools: [] });
@@ -300,8 +304,8 @@ let setup = {
     s.app.use(
       s.ROOT_PATH + "/api/agent",
       s.checkHeadersCodeInjection,
-      s.ensureUser(), // ensureUser is a factory — call it
-      s.stopGuests, // stopGuests is the middleware itself (not a factory)
+      agentAuthMiddleware,
+      layerInfoMiddleware,
       s.setContentType,
       router,
     );
@@ -326,4 +330,10 @@ let setup = {
   },
 };
 
-module.exports = setup;
+setup.getAgentAuthMiddleware = getAgentAuthMiddleware;
+
+module.exports = agentEnabled ? setup : {
+  onceInit: () => {},
+  alwaysRun: () => {},
+  getAgentAuthMiddleware,
+};

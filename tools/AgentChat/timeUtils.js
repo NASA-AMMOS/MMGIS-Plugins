@@ -49,6 +49,27 @@ const PRECISION_ORDER = {
     second: 5,
 }
 
+export function detectSpecialTimeKeyword(raw) {
+    if (typeof raw !== 'string') return null
+    const norm = raw.trim().toLowerCase()
+    if (!norm) return null
+    if (/^(latest|most recent|newest|current)$/.test(norm)) return 'latest'
+    if (/^(earliest|first|oldest)$/.test(norm)) return 'earliest'
+    if (
+        /(latest|most recent|newest|current)\s+(time|date|timestamp)/.test(
+            norm
+        ) ||
+        /(move|jump|go)\s+(?:to|toward)\s+the\s+(latest|newest)/.test(norm)
+    )
+        return 'latest'
+    if (
+        /(earliest|first|oldest)\s+(time|date|timestamp)/.test(norm) ||
+        /(move|jump|go)\s+(?:to|toward)\s+the\s+(earliest|first)/.test(norm)
+    )
+        return 'earliest'
+    return null
+}
+
 function levenshtein(a, b) {
     const m = a.length
     const n = b.length
@@ -491,42 +512,9 @@ export function describeCadence(cadence) {
 
 export function getLayerTimeMetadata(layerConfig) {
     const time = layerConfig?.time
-    
-    // If no time config or not enabled, provide default time metadata for certain layer types
-    if (!time || time.enabled !== true) {
-        // Check if this might be a time-capable layer based on its properties
-        const layerName = (layerConfig?.name || '').toLowerCase()
-        const layerType = layerConfig?.type || ''
-        
-        // For WMS/WMTS/GIBS layers, provide default time support
-        if (layerType === 'wms' || layerType === 'wmts' || 
-            layerName.includes('gibs') || layerName.includes('gfs') || 
-            layerName.includes('modis')) {
-            // Provide reasonable defaults for time-capable services
-            const now = new Date()
-            const yearAgo = new Date(now)
-            yearAgo.setFullYear(yearAgo.getFullYear() - 1)
-            
-            return {
-                enabled: true,
-                format: '%Y-%m-%dT%H:%M:%SZ',
-                cadence: 'day',
-                type: layerType || 'dynamic',
-                availableStart: toIsoString(yearAgo),
-                availableEnd: toIsoString(now),
-                bounds: {
-                    min: yearAgo.getTime(),
-                    max: now.getTime(),
-                    minIso: toIsoString(yearAgo),
-                    maxIso: toIsoString(now)
-                },
-                currentStart: toIsoString(now),
-                currentEnd: toIsoString(now),
-                isDefault: true // Flag to indicate this is a default configuration
-            }
-        }
-        return { enabled: false }
-    }
+    // Names and renderer types do not establish a real temporal capability.
+    // Only explicit mission/plugin metadata may enable time control.
+    if (!time || time.enabled !== true) return { enabled: false }
     
     const format =
         typeof time.format === 'string' && time.format.trim().length
@@ -544,6 +532,43 @@ export function getLayerTimeMetadata(layerConfig) {
         bounds,
         currentStart: normalizeTimestamp(time.start),
         currentEnd: normalizeTimestamp(time.end),
+    }
+}
+
+export function withActiveTimelineBounds(
+    meta,
+    { startTimestamp = null, endTimestamp = null } = {}
+) {
+    if (!meta?.enabled) return meta
+    const timelineMin = toMs(startTimestamp)
+    const timelineMax = toMs(endTimestamp)
+    const min = Number.isFinite(meta.bounds?.min)
+        ? meta.bounds.min
+        : Number.isFinite(timelineMin)
+          ? timelineMin
+          : null
+    const max = Number.isFinite(meta.bounds?.max)
+        ? meta.bounds.max
+        : Number.isFinite(timelineMax)
+          ? timelineMax
+          : null
+    return {
+        ...meta,
+        availableStart: Number.isFinite(min)
+            ? toIsoString(new Date(min))
+            : null,
+        availableEnd: Number.isFinite(max)
+            ? toIsoString(new Date(max))
+            : null,
+        bounds: {
+            min,
+            max,
+            minIso: Number.isFinite(min) ? toIsoString(new Date(min)) : null,
+            maxIso: Number.isFinite(max) ? toIsoString(new Date(max)) : null,
+        },
+        timelineBoundsUsed:
+            (!Number.isFinite(meta.bounds?.min) && Number.isFinite(min)) ||
+            (!Number.isFinite(meta.bounds?.max) && Number.isFinite(max)),
     }
 }
 
@@ -612,21 +637,14 @@ export function computeLayerTargetTime(meta, request) {
     let target = null
     if (request?.special === 'latest') {
         if (!Number.isFinite(meta.bounds?.max)) {
-            // If no max bound, try to use current time as fallback for "latest"
-            const now = new Date()
-            target = now
-            notes.push('Layer has no defined time range. Using current date.')
+            return { ok: false, reason: 'no_max_bound' }
         } else {
             target = new Date(meta.bounds.max)
             notes.push('Showing the latest available timestamp.')
         }
     } else if (request?.special === 'earliest') {
         if (!Number.isFinite(meta.bounds?.min)) {
-            // If no min bound, use a reasonable past date
-            const pastDate = new Date()
-            pastDate.setFullYear(pastDate.getFullYear() - 1)
-            target = pastDate
-            notes.push('Layer has no defined time range. Using one year ago.')
+            return { ok: false, reason: 'no_min_bound' }
         } else {
             target = new Date(meta.bounds.min)
             notes.push('Showing the earliest available timestamp.')

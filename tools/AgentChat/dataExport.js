@@ -2,10 +2,11 @@
 // Provides data export capabilities for external analysis
 
 import { 
-    buildLayerIndex, 
     findLayerMatch,
-    resolveArea
+    resolveArea,
+    createAreaUnresolvedError,
 } from './rendererUtils.js'
+import { sampleRaster } from './localAnalytics.js'
 
 /**
  * Export layer data in various formats
@@ -16,7 +17,6 @@ export async function exportLayerData(layerName, options = {}) {
         area = 'current view',
         timeRange = null,
         includeMetadata = true,
-        compression = false,
         resolution = 'full' // 'full', 'medium', 'low'
     } = options
     
@@ -29,11 +29,50 @@ export async function exportLayerData(layerName, options = {}) {
     // Resolve area
     const resolvedArea = resolveArea(area)
     if (!resolvedArea) {
-        throw new Error(`Unable to resolve area "${area}"`)
+        throw createAreaUnresolvedError(area)
     }
     
-    // Generate sample data based on the area
-    const data = generateLayerData(layerMatch, resolvedArea, resolution)
+    if (format.toLowerCase() === 'netcdf') {
+        throw new Error(
+            'NetCDF export is not available in the browser because no registered exporter can produce a standards-compliant NetCDF file. Choose CSV, GeoJSON, KML, or JSON.'
+        )
+    }
+
+    const maxPixelsByResolution = {
+        full: 100000,
+        medium: 25000,
+        low: 5000,
+    }
+    const sampled = await sampleRaster(layerMatch, resolvedArea, {
+        includeCoordinates: true,
+        maxPixels: maxPixelsByResolution[resolution] || 25000,
+        startTime: timeRange?.start || null,
+        endTime: timeRange?.end || null,
+    })
+    const config = layerMatch?.layer?.config || {}
+    const declaredUnit =
+        config.cogUnits ||
+        config.units ||
+        config.unit ||
+        config.metadata?.units ||
+        config.analysis?.units ||
+        ''
+    const unit =
+        typeof declaredUnit === 'string' ? declaredUnit.trim() : ''
+    const timestamp =
+        timeRange?.end ||
+        layerMatch?.layer?.liveInstance?.options?.time ||
+        null
+    const data = (sampled.samples || []).map((sample) => ({
+        lon: sample.lon,
+        lat: sample.lat,
+        value: sample.value,
+        ...(unit ? { unit } : {}),
+        timestamp,
+    }))
+    if (!data.length) {
+        throw new Error('No real scalar samples were available to export.')
+    }
     
     // Format data based on requested format
     let exportedData
@@ -43,9 +82,6 @@ export async function exportLayerData(layerName, options = {}) {
             break
         case 'geojson':
             exportedData = exportAsGeoJSON(data, layerMatch, resolvedArea, includeMetadata)
-            break
-        case 'netcdf':
-            exportedData = exportAsNetCDF(data, layerMatch, resolvedArea, includeMetadata)
             break
         case 'kml':
             exportedData = exportAsKML(data, layerMatch, resolvedArea)
@@ -58,54 +94,26 @@ export async function exportLayerData(layerName, options = {}) {
     }
     
     // Create download info
-    const downloadInfo = createDownload(exportedData, format, layerMatch.displayName)
+    const normalizedFormat = format.toLowerCase()
+    const downloadInfo = createDownload(
+        exportedData,
+        normalizedFormat,
+        layerMatch.displayName
+    )
     
     return {
         layerName: layerMatch.displayName,
-        format,
+        format: normalizedFormat,
         area: resolvedArea.label,
         bbox: resolvedArea.bbox,
         resolution,
         dataPoints: data.length,
         fileSize: exportedData.length,
         downloadInfo,
-        status: 'ready'
+        status: 'ready',
+        source: 'local-cog',
+        unit: unit || null,
     }
-}
-
-/**
- * Generate sample data for export
- */
-function generateLayerData(layerMatch, area, resolution) {
-    const resolutionMap = {
-        'full': 0.1,
-        'medium': 0.5,
-        'low': 1.0
-    }
-    
-    const step = resolutionMap[resolution] || 0.5
-    const [west, south, east, north] = area.bbox
-    
-    const data = []
-    for (let lon = west; lon <= east; lon += step) {
-        for (let lat = south; lat <= north; lat += step) {
-            // Generate realistic ice thickness values
-            const latitudeFactor = Math.abs(lat) / 90
-            const baseValue = 0.5 + latitudeFactor * 2.0
-            const noise = (Math.random() - 0.5) * 0.5
-            const value = Math.max(0, baseValue + noise)
-            
-            data.push({
-                lon: lon,
-                lat: lat,
-                value: value,
-                unit: 'meters',
-                timestamp: new Date().toISOString()
-            })
-        }
-    }
-    
-    return data
 }
 
 /**
@@ -129,7 +137,7 @@ function exportAsCSV(data, layerMatch, area, includeMetadata) {
     
     // Add data rows
     data.forEach(point => {
-        lines.push(`${point.lon.toFixed(6)},${point.lat.toFixed(6)},${point.value.toFixed(3)},${point.unit},${point.timestamp}`)
+        lines.push(`${point.lon.toFixed(6)},${point.lat.toFixed(6)},${point.value.toFixed(3)},${point.unit || ''},${point.timestamp || ''}`)
     })
     
     return lines.join('\n')
@@ -171,79 +179,13 @@ function exportAsGeoJSON(data, layerMatch, area, includeMetadata) {
 }
 
 /**
- * Export data as NetCDF (simulated structure)
- */
-function exportAsNetCDF(data, layerMatch, area, includeMetadata) {
-    // NetCDF would require a binary format library
-    // This is a simplified JSON representation of NetCDF structure
-    
-    const lons = [...new Set(data.map(d => d.lon))].sort((a, b) => a - b)
-    const lats = [...new Set(data.map(d => d.lat))].sort((a, b) => a - b)
-    
-    // Create 2D grid
-    const grid = Array(lats.length).fill(null).map(() => Array(lons.length).fill(NaN))
-    
-    data.forEach(point => {
-        const lonIdx = lons.indexOf(point.lon)
-        const latIdx = lats.indexOf(point.lat)
-        if (lonIdx >= 0 && latIdx >= 0) {
-            grid[latIdx][lonIdx] = point.value
-        }
-    })
-    
-    const netcdf = {
-        dimensions: {
-            lon: lons.length,
-            lat: lats.length,
-            time: 1
-        },
-        variables: {
-            lon: {
-                dimensions: ['lon'],
-                data: lons,
-                attributes: {
-                    units: 'degrees_east',
-                    long_name: 'Longitude'
-                }
-            },
-            lat: {
-                dimensions: ['lat'],
-                data: lats,
-                attributes: {
-                    units: 'degrees_north',
-                    long_name: 'Latitude'
-                }
-            },
-            ice_thickness: {
-                dimensions: ['lat', 'lon'],
-                data: grid,
-                attributes: {
-                    units: 'meters',
-                    long_name: layerMatch.displayName,
-                    _FillValue: NaN
-                }
-            }
-        },
-        global_attributes: includeMetadata ? {
-            title: layerMatch.displayName,
-            area: area.label,
-            bbox: area.bbox,
-            created: new Date().toISOString(),
-            source: 'MMGIS Copilot Export'
-        } : {}
-    }
-    
-    return JSON.stringify(netcdf, null, 2)
-}
-
-/**
  * Export data as KML
  */
 function exportAsKML(data, layerMatch, area) {
     const kmlPoints = data.map(point => `
         <Placemark>
-            <name>${point.value.toFixed(2)}m</name>
-            <description>Ice thickness: ${point.value.toFixed(3)} meters</description>
+            <name>${point.value.toFixed(4)}${point.unit ? ` ${point.unit}` : ''}</name>
+            <description>${layerMatch.displayName}: ${point.value}${point.unit ? ` ${point.unit}` : ''}</description>
             <Point>
                 <coordinates>${point.lon},${point.lat},0</coordinates>
             </Point>
@@ -251,9 +193,7 @@ function exportAsKML(data, layerMatch, area) {
                 <Data name="value">
                     <value>${point.value}</value>
                 </Data>
-                <Data name="unit">
-                    <value>${point.unit}</value>
-                </Data>
+                ${point.unit ? `<Data name="unit"><value>${point.unit}</value></Data>` : ''}
             </ExtendedData>
         </Placemark>
     `).join('')
@@ -285,8 +225,9 @@ function exportAsJSON(data, layerMatch, area, includeMetadata) {
             bbox: area.bbox,
             exportDate: new Date().toISOString(),
             dataPoints: data.length,
-            units: 'meters'
         }
+        const declaredUnit = data.find((point) => point.unit)?.unit
+        if (declaredUnit) output.metadata.units = declaredUnit
     }
     
     return JSON.stringify(output, null, 2)
@@ -300,7 +241,6 @@ function createDownload(data, format, layerName) {
         'csv': 'text/csv',
         'json': 'application/json',
         'geojson': 'application/geo+json',
-        'netcdf': 'application/json', // Would be application/x-netcdf
         'kml': 'application/vnd.google-earth.kml+xml'
     }
     
@@ -308,7 +248,6 @@ function createDownload(data, format, layerName) {
         'csv': 'csv',
         'json': 'json',
         'geojson': 'geojson',
-        'netcdf': 'nc.json', // Would be .nc
         'kml': 'kml'
     }
     
@@ -365,11 +304,6 @@ export function formatExportResults(results) {
     lines.push('[DOWNLOAD] Click to download the exported data')
     lines.push('')
     lines.push('Note: Data export includes all values within the specified area.')
-    
-    if (results.format === 'netcdf') {
-        lines.push('NetCDF export is in JSON format for demonstration.')
-        lines.push('Production system would generate binary NetCDF files.')
-    }
     
     return lines.join('\n')
 }

@@ -2,6 +2,11 @@
 // Extracted from renderers.js to support modular functionality
 
 import L_ from '@basics/Layers_/Layers_'
+import {
+    resolveConfiguredArea,
+    createAreaUnresolvedError,
+} from './regionNavigation'
+import { buildConfiguredAnalyticsEndpoint } from './agentEndpoints'
 
 // The active mission is only ever sourced from the running MMGIS instance, so
 // analytics requests always carry the mission the user is actually viewing.
@@ -161,86 +166,39 @@ function levenshtein(a, b) {
     return dp[m][n]
 }
 
-const AREA_PRESETS = {
-    'beaufort sea': {
-        label: 'Beaufort Sea',
-        bbox: [-160, 70, -120, 76],
-    },
-    'chukchi sea': {
-        label: 'Chukchi Sea',
-        bbox: [-180, 66, -156, 75],
-    },
-    'arctic ocean': {
-        label: 'Arctic Ocean',
-        bbox: [-180, 75, 180, 90],
-    },
-    'greenland sea': {
-        label: 'Greenland Sea', 
-        bbox: [-20, 72, 10, 82],
-    },
-    'laptev sea': {
-        label: 'Laptev Sea',
-        bbox: [105, 72, 143, 81],
-    },
-    'gulf of mexico': {
-        label: 'Gulf of Mexico',
-        bbox: [-97.5, 18.0, -80.5, 30.5],
-    },
-    'great lakes': {
-        label: 'Great Lakes',
-        bbox: [-92.5, 41.0, -75.0, 49.0],
-    },
+export function resolveArea(name) {
+    return resolveConfiguredArea(name, {
+        map: window.mmgisAPI?.map,
+        runtimePresets: window.mmgisAgentAreaPresets,
+    })
 }
 
-export function resolveArea(name) {
-    const normalized = normalizeName(name)
-    if (normalized && AREA_PRESETS[normalized]) {
-        const preset = AREA_PRESETS[normalized]
-        return {
-            label: preset.label || name || 'selected area',
-            bbox: preset.bbox.slice(),
-        }
-    }
-    const map = window.mmgisAPI?.map
-    if (map) {
-        const bounds = map.getBounds()
-        return {
-            label: name || 'current map view',
-            bbox: [
-                bounds.getWest(),
-                bounds.getSouth(),
-                bounds.getEast(),
-                bounds.getNorth(),
-            ],
-        }
-    }
-    return null
-}
+export { createAreaUnresolvedError }
 
 function getAnalyticsBaseUrl() {
     const override =
         window?.mmgisglobal?.ANALYTICS_BASE_URL &&
         String(window.mmgisglobal.ANALYTICS_BASE_URL).trim()
-    const root = (window?.mmgisglobal?.ROOT_PATH || '').replace(/\/+$/, '')
-    const base =
-        override && override.length ? override : `${root}/api/agent/analytics`
-    return base.replace(/\/+$/, '')
+    return override && override.length ? override.replace(/\/+$/, '') : null
 }
 
-function buildAnalyticsUrl(path) {
-    const safePath = String(path || '').replace(/^\/+/, '')
-    const url = `${getAnalyticsBaseUrl()}/${safePath}`
+export function buildRendererUtilsAnalyticsUrl(path) {
     const mission = getCurrentMission()
-    if (!mission) return url
-    const sep = url.includes('?') ? '&' : '?'
-    return `${url}${sep}mission=${encodeURIComponent(mission)}`
+    return buildConfiguredAnalyticsEndpoint({
+        path,
+        analyticsBaseUrl: getAnalyticsBaseUrl() || '',
+        mission: mission || '',
+        rootPath: window?.mmgisglobal?.ROOT_PATH || '',
+        configuredUrl: window?.mmgisAgentChat?.getAgentApiUrl,
+        origin: window?.location?.origin || '',
+    })
 }
 
 let analyticsLayerCatalogPromise = null
 
 async function fetchAnalyticsLayerCatalog() {
     if (analyticsLayerCatalogPromise) return analyticsLayerCatalogPromise
-    const url = buildAnalyticsUrl('layers')
+    const url = buildRendererUtilsAnalyticsUrl('layers')
     analyticsLayerCatalogPromise = fetch(url, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -419,7 +377,7 @@ export async function fetchAnalyticsStatistics(layerKey, bbox, timeRange, layerN
         if (timeRange.start) params.set('time_start', timeRange.start)
         if (timeRange.end) params.set('time_end', timeRange.end)
     }
-    const statsUrl = buildAnalyticsUrl('statistics')
+    const statsUrl = buildRendererUtilsAnalyticsUrl('statistics')
     const url = `${statsUrl}${statsUrl.includes('?') ? '&' : '?'}${params.toString()}`
     const res = await fetch(url, {
         method: 'GET',
@@ -453,7 +411,7 @@ export async function fetchAnalyticsHistogram(
         params.set('b', bbox.join(','))
     }
     params.set('bins', String(bins))
-    const histUrl = buildAnalyticsUrl('histogram/data')
+    const histUrl = buildRendererUtilsAnalyticsUrl('histogram/data')
     const url = `${histUrl}${histUrl.includes('?') ? '&' : '?'}${params.toString()}`
     const res = await fetch(url, {
         method: 'GET',

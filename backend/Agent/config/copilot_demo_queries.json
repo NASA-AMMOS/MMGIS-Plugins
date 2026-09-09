@@ -1,12 +1,108 @@
 {
+  "schemaVersion": 2,
   "queries": [
+    "What is MMGIS?",
+    "List layers",
+    "Show analyzable layers",
+    "Tell me about MMGIS",
+    "What time range is available for the current layer?",
+    "What layers are available in this mission?",
+    "Which layers can I analyze?",
+    "Show statistics of the first visible data layer",
+    "Show statistics of the first visible layer",
+    "Move the time slider to the latest date",
+    "Set time to January 2024",
+    "Turn on the forecast prediction layer",
+    "Compare Land Mask vs Ice Forecast",
+    "Show the difference between predicted and ground truth ice",
+    "Highlight areas where the current layer exceeds its average value",
+    "Calculate mean for GIBS MODIS True Color",
     "Show me the sea ice forecast for January 2024",
     "What is the predicted sea ice concentration today?",
     "Compare the AI prediction with ground truth for last week",
-    "Turn on the forecast prediction layer",
-    "Show the difference between predicted and ground truth ice",
-    "What layers are available in this mission?",
+    "What is the sea ice extent trend over 2023?",
     "Zoom to the Arctic region",
-    "What is the sea ice extent trend over 2023?"
-  ]
+    "Zoom to the current area of interest",
+    "Turn on a data layer to analyze",
+    "Show available data layers",
+    "Zoom into the Chukchi Sea at zoom level 4",
+    "Zoom to the Greenland Sea at zoom level 5",
+    "Zoom into the Beaufort Sea at zoom level 3"
+  ],
+  "suggestionChipRange": {
+    "min": 5,
+    "max": 8
+  },
+  "zoom": {
+    "regions": [
+      { "name": "Arctic Ocean", "center": [-150, 78.5], "bbox": [-180, 70, 180, 90], "defaultZoom": 3 },
+      { "name": "Beaufort Sea", "center": [-146, 73.5], "bbox": [-160, 70, -120, 76], "defaultZoom": 5 },
+      { "name": "Chukchi Sea", "center": [-166, 70.5], "bbox": [-180, 65, -155, 76], "defaultZoom": 5 },
+      { "name": "Greenland Sea", "center": [-5, 74], "bbox": [-25, 66, 15, 82], "defaultZoom": 5 },
+      { "name": "Laptev Sea", "center": [126, 76], "bbox": [100, 70, 145, 82], "defaultZoom": 4 }
+    ],
+    "levels": [3, 4, 5, 6, 7],
+    "grammar": [
+      "Zoom to the {region}",
+      "Zoom into the {region}",
+      "Take me to the {region}",
+      "Show the {region}",
+      "Zoom to the {region} at zoom level {zoom}",
+      "Zoom into the {region} at zoom level {zoom}",
+      "Zoom to the {region} with zoom level {zoom}",
+      "Zoom into the {region} with zoom level {zoom}",
+      "Show the {region} at zoom {zoom}"
+    ]
+  },
+  "dynamicTemplates": {
+    "visibleAnalyzable": [
+      "Show statistics for {layer}",
+      "Calculate the average of {layer}",
+      "Calculate mean for {layer}",
+      "Highlight areas where {layer} exceeds its average value",
+      "Analyze {layer}",
+      "Show statistics of {layer} for the full layer extent",
+      "Show {layer} changes over time"
+    ],
+    "timeEnabled": [
+      "Animate {layer} over time",
+      "What time range is available for {layer}?"
+    ],
+    "comparison": [
+      "Compare {layerA} vs {layerB}",
+      "What is the difference between {layerA} and {layerB}?"
+    ],
+    "fallback": [
+      "Turn on a data layer to analyze",
+      "Show available data layers"
+    ]
+  },
+  "contextualQueries": {
+    "layers": [
+      "What other layers are available?",
+      "Set the visible layer opacity to 50%",
+      "Show me information about the visible layer",
+      "Set layer opacity to 50%",
+      "Show me layer information"
+    ],
+    "time": [
+      "Show the available time range",
+      "Move to the latest date",
+      "Go to January 2024",
+      "Show available time range"
+    ],
+    "analysis": [
+      "Give me statistics for the visible layer",
+      "Highlight values above the visible layer average",
+      "Compare the visible analyzable layers",
+      "Compare with other layers"
+    ],
+    "navigation": [
+      "Zoom to the Arctic Ocean",
+      "Show the Beaufort Sea at zoom 3",
+      "List visible layers in this area",
+      "Zoom to Arctic Ocean",
+      "Show Beaufort Sea region"
+    ]
+  }
 }

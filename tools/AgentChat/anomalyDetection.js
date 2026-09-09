@@ -5,6 +5,7 @@ import {
     buildLayerIndex, 
     findLayerMatch,
     resolveArea,
+    createAreaUnresolvedError,
     resolveAnalyticsLayerKey,
     fetchAnalyticsStatistics,
     fetchAnalyticsHistogram,
@@ -14,6 +15,10 @@ import {
     normalizeBoundingBox,
     isValidBbox
 } from './rendererUtils.js'
+import {
+    calculateLocalBasicStats,
+    calculateLocalHistogram,
+} from './localAnalytics.js'
 
 /**
  * Calculate z-score based anomalies
@@ -187,48 +192,13 @@ function detectTemporalAnomalies(currentStats, historicalStats) {
  * Detect spatial clustering of anomalies
  */
 async function detectSpatialClusters(layerKey, bbox, timeRange, threshold) {
-    // This would require grid-based analysis
-    // For now, return a simplified spatial analysis
-    
-    const gridSize = 4 // Divide area into 4x4 grid
-    const west = bbox[0], south = bbox[1], east = bbox[2], north = bbox[3]
-    const cellWidth = (east - west) / gridSize
-    const cellHeight = (north - south) / gridSize
-    
-    const clusters = []
-    const anomalousRegions = []
-    
-    // Simulate checking each grid cell
-    // In production, this would fetch actual data for each cell
-    for (let i = 0; i < gridSize; i++) {
-        for (let j = 0; j < gridSize; j++) {
-            const cellBbox = [
-                west + (i * cellWidth),
-                south + (j * cellHeight),
-                west + ((i + 1) * cellWidth),
-                south + ((j + 1) * cellHeight)
-            ]
-            
-            // Simulate anomaly detection in this cell
-            // In reality, would fetch stats for this cell
-            const isAnomalous = Math.random() > 0.8 // 20% chance of anomaly
-            
-            if (isAnomalous) {
-                anomalousRegions.push({
-                    cell: [i, j],
-                    bbox: cellBbox,
-                    confidence: 0.7 + (Math.random() * 0.3)
-                })
-            }
-        }
-    }
-    
-    return {
-        gridSize,
-        totalCells: gridSize * gridSize,
-        anomalousRegions,
-        clusteringDetected: anomalousRegions.length > 2
-    }
+    void layerKey
+    void bbox
+    void timeRange
+    void threshold
+    throw new Error(
+        'Spatial anomaly clustering requires a registered cell-level analytics capability.'
+    )
 }
 
 /**
@@ -253,7 +223,7 @@ export async function detectAnomalies(layerName, options = {}) {
     const resolvedLayerName = layerMatch.displayName || layerName
     const resolvedArea = resolveArea(area)
     if (!resolvedArea) {
-        throw new Error(`Unable to resolve area "${area}"`)
+        throw createAreaUnresolvedError(area)
     }
     
     // Resolve analytics layer
@@ -262,13 +232,36 @@ export async function detectAnomalies(layerName, options = {}) {
         layerMatch?.layer?.config
     )
     
-    // Fetch statistics
-    const stats = await fetchAnalyticsStatistics(
-        analyticsLayer?.key || null,
-        resolvedArea.bbox,
-        timeRange,
-        resolvedLayerName
-    )
+    let stats = null
+    let localHistogram = null
+    try {
+        stats = await fetchAnalyticsStatistics(
+            analyticsLayer?.key || null,
+            resolvedArea.bbox,
+            timeRange,
+            resolvedLayerName
+        )
+    } catch (remoteError) {
+        console.warn(
+            'Remote anomaly statistics unavailable; trying the source COG.',
+            remoteError
+        )
+        stats = await calculateLocalBasicStats(layerMatch, resolvedArea, {
+            startTime: timeRange?.start || null,
+            endTime: timeRange?.end || null,
+        })
+        try {
+            localHistogram = await calculateLocalHistogram(
+                layerMatch,
+                resolvedArea,
+                {
+                    bins: 100,
+                    startTime: timeRange?.start || null,
+                    endTime: timeRange?.end || null,
+                }
+            )
+        } catch (_) {}
+    }
     
     if (!stats || typeof stats.mean !== 'number') {
         throw new Error('Unable to retrieve statistics for anomaly detection')
@@ -283,6 +276,14 @@ export async function detectAnomalies(layerName, options = {}) {
                 0.5: stats.median || stats.q50,
                 0.75: stats.q75
             }
+        }
+    } else if (localHistogram?.stats) {
+        quantiles = {
+            quantiles: {
+                0.25: localHistogram.stats.q25,
+                0.5: localHistogram.stats.median,
+                0.75: localHistogram.stats.q75,
+            },
         }
     } else if (analyticsLayer?.key) {
         try {

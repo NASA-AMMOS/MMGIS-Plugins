@@ -1,21 +1,19 @@
+import ToolController_ from '@basics/ToolController_/ToolController_'
+import { openAgentTool } from './actionCatalog'
 import $ from 'jquery'
 import L_ from '@basics/Layers_/Layers_'
 import TimeControl from '@basics/TimeControl_/TimeControl'
-import TimeUI from '@basics/TimeControl_/TimeUI'
+import { transformStacUrl } from '@basics/Layers_/LayerUtils'
 import {
     parseTimeQuery,
     getLayerTimeMetadata,
     computeLayerTargetTime,
     describeCadence,
     computePrecisionEndIso,
+    detectSpecialTimeKeyword,
+    withActiveTimelineBounds,
 } from './timeUtils'
 import { detectAnomalies, formatAnomalyResults } from './anomalyDetection'
-import rasterDifference from './rasterDifference'
-
-// Make rasterDifference available globally for the renderer
-if (typeof window !== 'undefined') {
-    window.rasterDifference = rasterDifference
-}
 import {
     calculateMultiLayerStats,
     calculateTemporalTrends,
@@ -27,43 +25,61 @@ import {
     formatChangeDetectionResults,
 } from './advancedStatistics'
 import {
-    createTimeSeriesAnimation,
-    formatAnimationResults
-} from './timeSeriesAnimation'
-import {
     exportLayerData,
     formatExportResults,
-    triggerDownload
+    triggerDownload,
 } from './dataExport'
 import {
     calculateLocalBasicStats,
+    calculateLocalAlignedDifference,
     calculateLocalHistogram,
     calculateLocalThresholdMask,
     logLocalAnalyticsEvent,
 } from './localAnalytics'
+import {
+    assessLayerAnalysisCompatibility,
+    formatAnalyzableLayerCatalog,
+    isUserFacingLayer,
+    selectFirstVisibleAnalyzableLayer,
+} from './analysisCompatibility'
+import {
+    resolveNamedRegion,
+    resolveConfiguredArea,
+    createAreaUnresolvedError,
+    isFullLayerExtentArea,
+    resolveFullLayerExtentArea,
+} from './regionNavigation'
+import { resolveLayerSelection } from './layerResolver'
+import {
+    buildRelativeMeanThresholdAction,
+    buildDifferenceRequestUrl,
+    formatDifferenceStatistics,
+} from './analysisWorkflows'
+import {
+    buildThresholdExpression,
+    convertThresholdValuesToLayerUnit,
+    normalizeThresholdOperator,
+    resolveThresholdBand,
+    resolveThresholdUnit,
+} from './thresholdWorkflow'
+import {
+    appendQueryParameters,
+    buildConfiguredAgentEndpoint,
+} from './agentEndpoints'
+import { resolveSpatialAnalysisType } from './spatialAnalysisPolicy'
+import { describeStatisticsProvenance } from './statisticsProvenance'
+import {
+    assessProviderScalarSemantics,
+    resolveScalarRasterTransform,
+} from './scalarRasterTransform'
 
-const DEFAULT_AREA_PRESETS = {
-    'beaufort sea': { label: 'Beaufort Sea', bbox: [-160, 70, -120, 76] },
-    'chukchi sea': { label: 'Chukchi Sea', bbox: [-180, 65, -155, 76] },
-    'arctic ocean': { label: 'Arctic Ocean', bbox: [-180, 70, 180, 90] },
-    'gulf of mexico': { label: 'Gulf of Mexico', bbox: [-97.5, 18.0, -80.5, 30.5] },
-    'great lakes': { label: 'Great Lakes', bbox: [-92.5, 41.0, -75.0, 49.0] },
-    'north atlantic': { label: 'North Atlantic', bbox: [-80, 30, 0, 70] },
-    'north pacific': { label: 'North Pacific', bbox: [120, 30, -120, 65] },
+function analysisCompatibilityOptions() {
+    const tools = window.mmgisAgentChat?.getToolRegistry?.()?.tools
+    return {
+        onState: L_?.layers?.on || null,
+        ...(Array.isArray(tools) ? { tools } : {}),
+    }
 }
-
-// Mission-specific presets can be injected via window.mmgisAgentAreaPresets
-// (plain object keyed by lowercase region name, same shape as DEFAULT_AREA_PRESETS).
-function getAreaPresets() {
-    const overrides = (typeof window !== 'undefined' && window.mmgisAgentAreaPresets) || {}
-    return { ...DEFAULT_AREA_PRESETS, ...overrides }
-}
-
-// Keep AREA_PRESETS as a convenience alias resolved at call time.
-const AREA_PRESETS = new Proxy({}, {
-    get(_, key) { return getAreaPresets()[key] },
-    has(_, key) { return key in getAreaPresets() },
-})
 
 function appendLine(text) {
     if (typeof window.__mmgisAgentChatAppend === 'function') {
@@ -75,16 +91,16 @@ function appendLine(text) {
         // Try alternative selectors
         const altSelectors = [
             '.agentchat-transcript',
-            '.agent-chat-transcript', 
+            '.agent-chat-transcript',
             '[data-agentchat-transcript]',
-            '.agentChatTranscript'
+            '.agentChatTranscript',
         ]
         for (const selector of altSelectors) {
             const $alt = $(selector)
             if ($alt.length) {
-                const div = $(`<div style='margin:4px 0;white-space:pre-wrap'></div>`).text(
-                    String(text)
-                )
+                const div = $(
+                    `<div style='margin:4px 0;white-space:pre-wrap'></div>`
+                ).text(String(text))
                 $alt.append(div)
                 if (typeof window.__mmgisAgentChatScroll === 'function') {
                     window.__mmgisAgentChatScroll()
@@ -100,7 +116,7 @@ function appendLine(text) {
         String(text)
     )
     $tx.append(div)
-    
+
     // Trigger scroll from AgentChatTool.js
     if (typeof window.__mmgisAgentChatScroll === 'function') {
         window.__mmgisAgentChatScroll()
@@ -154,16 +170,28 @@ function scoreSimilarity(queryNorm, candidateNorm) {
     return Math.max(0, 1 - dist / maxLen)
 }
 
-const ANALYTICS_DEFAULT_BASE = null
 const analyticsLayerCatalogPromises = new Map()
+const CONFIGURED_AGENT_ANALYTICS = '__configured-agent-analytics__'
+
+function buildRendererAgentEndpoint(path, params = {}) {
+    return buildConfiguredAgentEndpoint({
+        path,
+        mission: L_?.mission || '',
+        rootPath: window.mmgisglobal?.ROOT_PATH || '',
+        configuredUrl: window.mmgisAgentChat?.getAgentApiUrl,
+        params,
+        origin: window.location?.origin || '',
+    })
+}
 
 function getAnalyticsBaseUrl() {
     const override =
         (window?.mmgisglobal?.ANALYTICS_BASE_URL &&
-            String(window.mmgisglobal.ANALYTICS_BASE_URL).trim()) || ''
-    const root = (window?.mmgisglobal?.ROOT_PATH || '').replace(/\/+$/, '')
-    const base = override.length ? override : `${root}/api/agent/analytics`
-    return base.replace(/\/+$/, '')
+            String(window.mmgisglobal.ANALYTICS_BASE_URL).trim()) ||
+        ''
+    return override.length
+        ? override.replace(/\/+$/, '')
+        : CONFIGURED_AGENT_ANALYTICS
 }
 
 function resolveAnalyticsBase(override = undefined) {
@@ -183,7 +211,11 @@ function buildAnalyticsUrl(path, baseOverride = undefined) {
     const base = resolveAnalyticsBase(baseOverride)
     if (!base) return null
     const safePath = String(path || '').replace(/^\/+/, '')
-    return `${base}/${safePath}`
+    if (base === CONFIGURED_AGENT_ANALYTICS)
+        return buildRendererAgentEndpoint(`/analytics/${safePath}`)
+    return appendQueryParameters(`${base}/${safePath}`, {
+        mission: L_?.mission || '',
+    })
 }
 
 async function fetchAnalyticsLayerCatalog(baseOverride = null) {
@@ -193,9 +225,7 @@ async function fetchAnalyticsLayerCatalog(baseOverride = null) {
     if (analyticsLayerCatalogPromises.has(cacheKey)) {
         return analyticsLayerCatalogPromises.get(cacheKey)
     }
-    const url = L_.mission
-        ? `${base}/layers?mission=${encodeURIComponent(L_.mission)}`
-        : `${base}/layers`
+    const url = buildAnalyticsUrl('layers', base)
     const promise = fetch(url, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -263,6 +293,9 @@ function gatherAnalyticsAliases(key, info, layerConfig) {
         if (layerConfig.url) pushPath(layerConfig.url)
         if (layerConfig.cogUrl) pushPath(layerConfig.cogUrl)
         if (layerConfig.source) pushPath(layerConfig.source)
+        push(layerConfig.analyticsLayerKey)
+        push(layerConfig.analyticsKey)
+        push(layerConfig.dataset)
     }
     return Array.from(values)
 }
@@ -293,43 +326,28 @@ async function resolveAnalyticsLayerKey(
             })
         }
         if (!entries.length) return null
-        const targetNorm = normalizeName(layerName)
-        if (!targetNorm) return null
+        const targetNorms = gatherAnalyticsAliases(layerName, null, layerConfig)
+            .map(normalizeName)
+            .filter(Boolean)
+        if (!targetNorms.length) return null
         let best = null
         let bestScore = 0
         entries.forEach(({ key, info }) => {
-            const candidates = gatherAnalyticsAliases(key, info, layerConfig)
+            const candidates = gatherAnalyticsAliases(key, info, null)
             candidates.forEach((candidate) => {
                 const candidateNorm = normalizeName(candidate)
                 if (!candidateNorm) return
-                const score = scoreSimilarity(targetNorm, candidateNorm)
-                if (score > bestScore) {
-                    bestScore = score
-                    best = { key, info }
-                }
+                targetNorms.forEach((targetNorm) => {
+                    const score = scoreSimilarity(targetNorm, candidateNorm)
+                    if (score > bestScore) {
+                        bestScore = score
+                        best = { key, info }
+                    }
+                })
             })
         })
-        if (!best) {
-            if (entries.length === 1) {
-                best = entries[0]
-                bestScore = 0
-            } else {
-                return null
-            }
-        }
-        const MIN_SCORE = 0.32
-        if (bestScore < MIN_SCORE && entries.length > 1) {
-            return {
-                key:
-                    (typeof best.key === 'string' && best.key) ||
-                    (best.info && typeof best.info.name === 'string'
-                        ? best.info.name
-                        : null) ||
-                    null,
-                info: best.info,
-                confidence: bestScore,
-            }
-        }
+        const MIN_SCORE = 0.55
+        if (!best || bestScore < MIN_SCORE) return null
         let resolvedKey =
             (typeof best.key === 'string' && best.key) ||
             (best.info && typeof best.info.name === 'string'
@@ -343,14 +361,7 @@ async function resolveAnalyticsLayerKey(
             const parts = best.info.path.split(/[\\/]/)
             resolvedKey = parts[parts.length - 1]?.replace(/\.[^.]+$/, '')
         }
-        if (!resolvedKey) {
-            if (entries.length === 1) {
-                resolvedKey =
-                    entries[0].key || entries[0].info?.name || 'default'
-            } else {
-                return null
-            }
-        }
+        if (!resolvedKey) return null
         return {
             key: resolvedKey,
             info: best.info,
@@ -386,12 +397,11 @@ async function fetchAnalyticsStatistics(
         if (timeRange.start) params.set('time_start', timeRange.start)
         if (timeRange.end) params.set('time_end', timeRange.end)
     }
-    if (L_.mission) params.set('mission', L_.mission)
     const url = buildAnalyticsUrl('statistics', baseOverride)
     if (!url) {
         throw new Error('Analytics endpoint is not configured for this layer.')
     }
-    const fullUrl = `${url}?${params.toString()}`
+    const fullUrl = appendQueryParameters(url, params)
     const res = await fetch(fullUrl, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -400,6 +410,24 @@ async function fetchAnalyticsStatistics(
         throw new Error(`Analytics statistics failed (${res.status})`)
     }
     return res.json()
+}
+
+function differenceProviderSemantics(data, side) {
+    const suffix = side === 'layer_a' ? 'a' : 'b'
+    return (
+        data?.[`${side}_semantics`] ||
+        data?.semantics?.[side] ||
+        data?.semantics?.[suffix] ||
+        data?.provenance?.[side] || {
+            value_expression:
+                data?.[`value_expression_${suffix}`] ||
+                data?.[`expression_${suffix}`],
+            valid_range: data?.[`valid_range_${suffix}`],
+            nodata_value: data?.[`nodata_value_${suffix}`],
+            nodata_values: data?.[`nodata_values_${suffix}`],
+            unit: data?.[`unit_${suffix}`] || data?.[`units_${suffix}`],
+        }
+    )
 }
 
 async function fetchAnalyticsHistogram(
@@ -425,12 +453,11 @@ async function fetchAnalyticsHistogram(
         params.set('b', bbox.join(','))
     }
     params.set('bins', String(bins))
-    if (L_.mission) params.set('mission', L_.mission)
     const url = buildAnalyticsUrl('histogram/data', baseOverride)
     if (!url) {
         throw new Error('Analytics histogram endpoint is unavailable.')
     }
-    const fullUrl = `${url}?${params.toString()}`
+    const fullUrl = appendQueryParameters(url, params)
     const res = await fetch(fullUrl, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -597,12 +624,14 @@ function buildLayerIndex() {
     if (!configs || typeof configs !== 'object')
         throw new Error('getLayerConfigs() returned no data.')
     const visibleLookup = api.getVisibleLayers?.() || {}
+    const layerOn = L_?.layers?.on || {}
     const liveLayers = api.getLayers?.() || {}
     const items = []
     const seen = new Set()
 
     Object.keys(configs).forEach((key) => {
         const layerConfig = configs[key] || {}
+        if (String(layerConfig.type || '').toLowerCase() === 'header') return
         const uuid = String(layerConfig.uuid || key || layerConfig.name || '')
         if (!uuid || seen.has(uuid)) return
         seen.add(uuid)
@@ -653,6 +682,8 @@ function buildLayerIndex() {
             displayName,
             canonical,
             visible: !!(
+                layerOn[uuid] ||
+                (layerConfig.name && layerOn[layerConfig.name]) ||
                 visibleLookup[uuid] ||
                 visibleLookup[key] ||
                 (layerConfig.name && visibleLookup[layerConfig.name])
@@ -711,6 +742,30 @@ function ensureMap() {
     return map
 }
 
+function waitForMapState(map, predicate, timeoutMs = 1500) {
+    if (predicate()) return Promise.resolve(true)
+    return new Promise((resolve) => {
+        let finished = false
+        let timer = null
+        const finish = (matched) => {
+            if (finished) return
+            finished = true
+            if (timer) clearTimeout(timer)
+            map.off?.('moveend', check)
+            map.off?.('zoomend', check)
+            resolve(matched)
+        }
+        const check = () => {
+            if (predicate()) finish(true)
+        }
+        timer = setTimeout(() => finish(predicate()), timeoutMs)
+        map.on?.('moveend', check)
+        map.on?.('zoomend', check)
+        // Leaflet may complete a non-animated setView before listeners attach.
+        check()
+    })
+}
+
 function ensureOverlayGroup(key) {
     const map = ensureMap()
     const store = (window.__mmgisAgentChatOverlays =
@@ -762,40 +817,11 @@ function drawLocalThresholdOverlay(points) {
     })
 }
 
-function deterministicNumber(seed, min, max) {
-    let hash = 0
-    const text = seed.toString()
-    for (let i = 0; i < text.length; i += 1) {
-        hash = (hash << 5) - hash + text.charCodeAt(i)
-        hash |= 0
-    }
-    const normalized = ((hash >>> 0) % 10000) / 10000
-    return min + normalized * (max - min)
-}
-
 function resolveArea(name) {
-    const normalized = normalizeName(name)
-    if (normalized && AREA_PRESETS[normalized]) {
-        const preset = AREA_PRESETS[normalized]
-        return {
-            label: preset.label || name || 'selected area',
-            bbox: preset.bbox.slice(),
-        }
-    }
-    const map = window.mmgisAPI?.map
-    if (map) {
-        const bounds = map.getBounds()
-        return {
-            label: name || 'current map view',
-            bbox: [
-                bounds.getWest(),
-                bounds.getSouth(),
-                bounds.getEast(),
-                bounds.getNorth(),
-            ],
-        }
-    }
-    return null
+    return resolveConfiguredArea(name, {
+        map: window.mmgisAPI?.map,
+        runtimePresets: window.mmgisAgentAreaPresets,
+    })
 }
 
 function resolveLayerContext(payload) {
@@ -805,7 +831,9 @@ function resolveLayerContext(payload) {
     }
     const layerMatch = findLayerMatch(layerName)
     if (!layerMatch || !layerMatch.layer) {
-        throw new Error(`Unable to locate configuration for layer "${layerName}".`)
+        throw new Error(
+            `Unable to locate configuration for layer "${layerName}".`
+        )
     }
     const resolvedLayerName =
         layerMatch.displayName || layerMatch.layer?.displayName || layerName
@@ -814,11 +842,11 @@ function resolveLayerContext(payload) {
         payload?.area ||
         payload?.region ||
         'current view'
-    const area = resolveArea(areaName)
+    const area = isFullLayerExtentArea(areaName)
+        ? resolveFullLayerExtentArea(layerMatch)
+        : resolveArea(areaName)
     if (!area) {
-        throw new Error(
-            `Unable to resolve geographical area "${areaName}". Try specifying a preset area or adjust the map view.`
-        )
+        throw createAreaUnresolvedError(areaName)
     }
     return { layerMatch, resolvedLayerName, area }
 }
@@ -896,41 +924,37 @@ async function computeLocalStatsContext(payload) {
     if (isExternalTileLayer(context.layerMatch)) {
         const cfg = context.layerMatch.layer.config || {}
         let host = ''
-        try { host = ` (${new URL(cfg.url || cfg.source).hostname})` } catch (_e) { /* ignore */ }
-        const name = context.resolvedLayerName || payload?.layer_name || 'This layer'
+        try {
+            host = ` (${new URL(cfg.url || cfg.source).hostname})`
+        } catch (_e) {
+            /* ignore */
+        }
+        const name =
+            context.resolvedLayerName || payload?.layer_name || 'This layer'
         throw new Error(
             `${name} is served from an external tile service${host}` +
-            ` and does not have a local raster file. ` +
-            `Raster statistics require a locally hosted COG or GeoTIFF layer.`
+                ` and does not have a local raster file. ` +
+                `Raster statistics require a locally hosted COG or GeoTIFF layer.`
         )
     }
     const timeTokens = getLayerTimeTokens(context.layerMatch, payload)
-    const stats = await calculateLocalBasicStats(context.layerMatch, context.area, {
-        geometry: payload?.geometry,
-        time: timeTokens.time,
-        startTime: timeTokens.startTime,
-        endTime: timeTokens.endTime,
-    })
+    const stats = await calculateLocalBasicStats(
+        context.layerMatch,
+        context.area,
+        {
+            geometry: payload?.geometry,
+            time: timeTokens.time,
+            startTime: timeTokens.startTime,
+            endTime: timeTokens.endTime,
+        }
+    )
     return { ...context, stats, timeTokens }
 }
 
-function formatCitations(citations) {
-    if (!Array.isArray(citations) || !citations.length) return ''
-    return citations
-        .map((c, idx) => {
-            const title =
-                (c && typeof c.title === 'string' && c.title) ||
-                `Source ${idx + 1}`
-            const url = c && typeof c.url === 'string' ? c.url : ''
-            return `${idx + 1}. ${title}${url ? ` (${url})` : ''}`
-        })
-        .join('\n')
-}
-
 async function fetchLayerMetadata(layerName) {
-    const root = window.mmgisglobal?.ROOT_PATH || ''
-    const url =
-        root + '/api/agent/layer-info?name=' + encodeURIComponent(layerName)
+    const url = buildRendererAgentEndpoint('/layer-info', {
+        name: layerName,
+    })
     const res = await fetch(url, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -949,42 +973,116 @@ async function fetchLayerMetadata(layerName) {
     }
 }
 
-async function searchLayerInformation(layerName, originalQuery) {
-    const root = window.mmgisglobal?.ROOT_PATH || ''
-    const promptParts = []
-    if (originalQuery) promptParts.push(`User asked: "${originalQuery}".`)
-    promptParts.push(
-        `Provide a concise description of the MMGIS layer "${layerName}".`
-    )
-    promptParts.push(
-        'Use authoritative sources, include at least two citations, and do not call any tools.'
-    )
-    const message = promptParts.join(' ')
-    const res = await fetch(root + '/api/agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
-    })
-    if (!res.ok) {
-        throw new Error(`Bing-backed lookup failed (status ${res.status}).`)
+function sanitizeLayerSummaryText(value, maxLength = 800) {
+    if (typeof value !== 'string') return ''
+    return value
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\bhttps?:\/\/\S+/gi, ' ')
+        .replace(
+            /\b(?:access[_ -]?token|api[_ -]?key|secret|password)\s*[:=]\s*\S+/gi,
+            ' '
+        )
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, maxLength)
+}
+
+function buildLiveLayerInformation(layerName) {
+    let match = null
+    try {
+        match = findLayerMatch(layerName)
+    } catch (error) {
+        console.warn(
+            '[AgentChat] Live layer metadata could not be inspected.',
+            error
+        )
     }
-    const payload = await res.json()
+    if (!match?.layer || match.score < 0.8) {
+        const message =
+            `No loaded layer uniquely matches "${layerName}". Choose a layer from “List layers” and try again.`
+        return {
+            ok: false,
+            message,
+            data: { requestedLayer: layerName },
+            errorCode: 'LAYER_NOT_FOUND',
+        }
+    }
+
+    const layer = match.layer
+    const config = layer.config || {}
+    const summaryCandidates = [
+        config.description,
+        config.summary,
+        config.longDescription,
+        config.metadata?.description,
+        config.metadata?.summary,
+    ]
+    const summary = summaryCandidates
+        .map((value) => sanitizeLayerSummaryText(value))
+        .find(Boolean)
+    const type = String(config.type || 'layer')
+    const visibility = layer.visible ? 'visible' : 'hidden'
+    const timeEnabled = config.time?.enabled === true
+    const state = `${type} layer; currently ${visibility}${
+        timeEnabled ? '; time-enabled' : ''
+    }`
+    if (!summary) {
+        const message =
+            `${layer.displayName} is a loaded ${state}, but this mission does not expose a descriptive summary for it. Its current type and visibility are available; additional scientific context must come from mission metadata or documentation.`
+        return {
+            ok: false,
+            message,
+            data: {
+                layer: layer.displayName,
+                type,
+                visible: layer.visible,
+                timeEnabled,
+                source: 'live-mission-config',
+            },
+            errorCode: 'LAYER_INFORMATION_UNAVAILABLE',
+        }
+    }
+    const message = `${layer.displayName}: ${summary} (${state}).`
     return {
-        reply: payload?.reply || payload?.text || '',
-        citations: Array.isArray(payload?.citations) ? payload.citations : [],
+        ok: true,
+        message,
+        data: {
+            layer: layer.displayName,
+            type,
+            visible: layer.visible,
+            timeEnabled,
+            source: 'live-mission-config',
+        },
     }
 }
 
+function isUserSelectableLayer(item) {
+    return isUserFacingLayer(item)
+}
 
-export async function render_layers_line() {
-    const items = buildLayerIndex()
+// Pure builder — derives the listing entirely from the live layer index
+// (i.e. the current mission's actual configuration), never a hardcoded
+// name list. Kept separate from the renderer so the structured result and
+// visible transcript always describe the same live mission state.
+export function buildLayersLineText() {
+    const items = buildLayerIndex().filter(isUserSelectableLayer)
     if (!items.length) {
         throw new Error('No layers available to list.')
     }
-    const summaryLines = items.map(
-        (item) => `- ${item.displayName} (${item.visible ? 'on' : 'off'})`
-    )
-    appendLine(`Layers:\n${summaryLines.join('\n')}`)
+    const lines = items.map((item, index) => {
+        const timeEnabled = item.config?.time?.enabled === true
+        const invariant = timeEnabled ? '' : ', time-invariant'
+        return `${index + 1}. ${item.displayName} — ${
+            item.visible ? 'visible' : 'hidden'
+        }${invariant}.`
+    })
+    return `Layers:\n${lines.join('\n')}`
+}
+
+export async function render_layers_line() {
+    const text = buildLayersLineText()
+    appendLine(text)
+    return { ok: true, message: text, data: { kind: 'layer-list' } }
 }
 
 export async function render_text_with_citation(_ctx, payload) {
@@ -1042,22 +1140,6 @@ function extractTimeQueryString(payload) {
     return null
 }
 
-function detectSpecialTimeKeyword(raw) {
-    if (typeof raw !== 'string') return null
-    const norm = raw.toLowerCase()
-    if (
-        /(latest|most recent|newest|current)\s+(time|date|timestamp)/.test(norm) ||
-        /(move|jump|go)\s+(?:to|toward)\s+the\s+(latest|newest)/.test(norm)
-    )
-        return 'latest'
-    if (
-        /(earliest|first|oldest)\s+(time|date|timestamp)/.test(norm) ||
-        /(move|jump|go)\s+(?:to|toward)\s+the\s+(earliest|first)/.test(norm)
-    )
-        return 'earliest'
-    return null
-}
-
 function uniqueLayerTargets(list) {
     const seen = new Set()
     return list.filter((item) => {
@@ -1091,7 +1173,9 @@ async function executeVisibleLayersTimeChange(payload) {
         payload?.special ||
         detectSpecialTimeKeyword(rawQuery) ||
         detectSpecialTimeKeyword(payload?.original_query || '')
-    const parsedTime = special ? { special, original: rawQuery } : parseTimeQuery(rawQuery)
+    const parsedTime = special
+        ? { special, original: rawQuery }
+        : parseTimeQuery(rawQuery)
     if (!parsedTime || (!parsedTime.date && !parsedTime.special)) {
         return {
             ok: false,
@@ -1123,27 +1207,16 @@ async function executeVisibleLayersTimeChange(payload) {
             }
         })
     } else {
-        // First try to find formally time-enabled layers
         targets = index.filter(
             (layer) => layer.visible && layer.config?.time?.enabled === true
         )
-        // If no formally time-enabled layers, try to find layers that might support time
-        if (targets.length === 0) {
-            targets = index.filter((layer) => {
-                if (!layer.visible) return false
-                // Check if layer name suggests it might support time
-                const name = (layer.displayName || '').toLowerCase()
-                return name.includes('gfs') || name.includes('gibs') || name.includes('modis') ||
-                       name.includes('swot') || name.includes('icesat')
-            })
-        }
     }
     targets = uniqueLayerTargets(targets)
     if (!targets.length) {
         return {
             ok: false,
             lines: [
-                'No time-capable layers found. The visible layers do not support time control.'
+                'No time-capable layers found. The visible layers do not support time control.',
             ],
         }
     }
@@ -1156,7 +1229,14 @@ async function executeVisibleLayersTimeChange(payload) {
             })
             continue
         }
-        const meta = getLayerTimeMetadata(target.config)
+        const timeUi = TimeControl?.timeUI
+        const meta = withActiveTimelineBounds(
+            getLayerTimeMetadata(target.config),
+            {
+                startTimestamp: timeUi?._timelineStartTimestamp,
+                endTimestamp: timeUi?._timelineEndTimestamp,
+            }
+        )
         if (!meta.enabled) {
             skipped.push({
                 name: target.displayName,
@@ -1166,11 +1246,12 @@ async function executeVisibleLayersTimeChange(payload) {
         }
         const resolution = computeLayerTargetTime(meta, parsedTime)
         if (!resolution.ok || !resolution.iso) {
-            const specificReason = resolution.reason === 'no_max_bound' 
-                ? 'layer has no time bounds defined'
-                : resolution.reason === 'no_min_bound'
-                ? 'layer has no time bounds defined'
-                : resolution.reason || 'unable to resolve timestamp'
+            const specificReason =
+                resolution.reason === 'no_max_bound'
+                    ? 'layer has no time bounds defined'
+                    : resolution.reason === 'no_min_bound'
+                      ? 'layer has no time bounds defined'
+                      : resolution.reason || 'unable to resolve timestamp'
             skipped.push({
                 name: target.displayName,
                 reason: specificReason,
@@ -1183,9 +1264,11 @@ async function executeVisibleLayersTimeChange(payload) {
             //      "Jan 1, 2024" (day) → 2024-01-01 to 2024-01-01T23:59:59Z
             const queryPrecision = parsedTime.precision || 'day'
             const rangeStartIso = resolution.iso
-            const rangeEndIso = (!parsedTime.special && parsedTime.date)
-                ? (computePrecisionEndIso(parsedTime.date, queryPrecision) || resolution.iso)
-                : resolution.iso
+            const rangeEndIso =
+                !parsedTime.special && parsedTime.date
+                    ? computePrecisionEndIso(parsedTime.date, queryPrecision) ||
+                      resolution.iso
+                    : resolution.iso
 
             // Update the main TimeControl timeline using precision-based range
             if (TimeControl && TimeControl.setTime && resolution.iso) {
@@ -1198,7 +1281,7 @@ async function executeVisibleLayersTimeChange(payload) {
                 )
             }
 
-            const applied = api.setLayerTime(
+            const applied = await api.setLayerTime(
                 target.id,
                 rangeStartIso,
                 rangeEndIso
@@ -1206,7 +1289,10 @@ async function executeVisibleLayersTimeChange(payload) {
             if (applied === false) {
                 throw new Error('setLayerTime rejected the request.')
             }
-            await api.reloadLayer(target.id)
+            const reloaded = await api.reloadLayer(target.id)
+            if (reloaded === false) {
+                throw new Error('the layer could not be reloaded')
+            }
             updates.push({
                 name: target.displayName,
                 iso: resolution.iso,
@@ -1215,6 +1301,7 @@ async function executeVisibleLayersTimeChange(payload) {
                 rangeEnd: resolution.availableEnd,
                 outOfRange: resolution.outOfRange,
                 notes: resolution.notes || [],
+                timelineBoundsUsed: meta.timelineBoundsUsed === true,
             })
         } catch (err) {
             skipped.push({
@@ -1226,10 +1313,10 @@ async function executeVisibleLayersTimeChange(payload) {
     const interpretationLine = parsedTime.iso
         ? `Parsed "${parsedTime.original}" to ${parsedTime.iso}.`
         : parsedTime.special === 'latest'
-        ? `Interpreting "${parsedTime.original}" as "latest available date".`
-        : parsedTime.special === 'earliest'
-        ? `Interpreting "${parsedTime.original}" as "earliest available date".`
-        : `Interpreting "${parsedTime.original}" as a time change request.`
+          ? `Interpreting "${parsedTime.original}" as "latest available date".`
+          : parsedTime.special === 'earliest'
+            ? `Interpreting "${parsedTime.original}" as "earliest available date".`
+            : `Interpreting "${parsedTime.original}" as a time change request.`
     const lines = [
         interpretationLine,
         `Attempting to set the time on ${targets.length} layer${
@@ -1259,8 +1346,12 @@ async function executeVisibleLayersTimeChange(payload) {
                     'requested time was later than the available range; showing the latest timestamp'
                 )
             entry.notes.forEach((note) => extras.push(note))
+            if (entry.timelineBoundsUsed)
+                extras.push('used the active MMGIS timeline bounds')
             const suffix = extras.length ? ` (${extras.join('; ')})` : ''
-            lines.push(`• ${entry.name}: Displaying data for ${entry.iso}${suffix}`)
+            lines.push(
+                `• ${entry.name}: Displaying data for ${entry.iso}${suffix}`
+            )
         })
     } else {
         lines.push('No layer accepted the time request.')
@@ -1276,7 +1367,14 @@ async function executeVisibleLayersTimeChange(payload) {
 
 export async function set_visible_layers_time(_ctx, payload) {
     const result = await executeVisibleLayersTimeChange(payload)
-    if (result.lines.length) appendLine(result.lines.join('\n'))
+    const message = result.lines.join('\n')
+    if (message) appendLine(message)
+    return {
+        ok: result.ok,
+        message,
+        data: null,
+        ...(result.ok ? {} : { errorCode: 'TIME_UPDATE_FAILED' }),
+    }
 }
 
 export async function fast_visible_layers_time(payload) {
@@ -1312,14 +1410,151 @@ export async function toggle_visibility(_ctx, payload) {
 
 export async function zoom_view(_ctx, payload) {
     const map = ensureMap()
+    const api = window.mmgisAPI
+    if (typeof payload?.region === 'string' && payload.region.trim()) {
+        const region = await resolveNamedRegion(payload.region, {
+            apiUrl: buildRendererAgentEndpoint('/regions/resolve'),
+        })
+        if (!region) {
+            const message = `I couldn't resolve the named region "${payload.region}".`
+            appendLine(message)
+            return {
+                ok: false,
+                message,
+                data: null,
+                errorCode: 'REGION_NOT_FOUND',
+            }
+        }
+        const explicitZoom = Number(payload.zoom)
+        const zoom = Number.isFinite(explicitZoom) ? explicitZoom : region.zoom
+        let usedFacade = false
+        if (region.center && Number.isFinite(zoom) && api?.setMapView) {
+            await api.setMapView(region.center[1], region.center[0], zoom)
+            usedFacade = true
+            await waitForMapState(map, () => map.getZoom?.() === zoom)
+        } else if (region.bbox && api?.fitMapBounds) {
+            await api.fitMapBounds(region.bbox)
+            usedFacade = true
+            if (Number.isFinite(explicitZoom) && api?.setMapView) {
+                const center = map.getCenter()
+                await api.setMapView(center.lat, center.lng, explicitZoom)
+                await waitForMapState(
+                    map,
+                    () => map.getZoom?.() === explicitZoom
+                )
+            } else if (Number.isFinite(explicitZoom)) {
+                map.setZoom(explicitZoom)
+                await waitForMapState(
+                    map,
+                    () => map.getZoom?.() === explicitZoom
+                )
+            } else {
+                await waitForMapState(map, () => !map._animatingZoom)
+            }
+        } else if (region.center && Number.isFinite(zoom)) {
+            map.setView([region.center[1], region.center[0]], zoom)
+            await waitForMapState(map, () => map.getZoom?.() === zoom)
+        } else if (region.bbox) {
+            const bounds = window.L.latLngBounds(
+                window.L.latLng(region.bbox[1], region.bbox[0]),
+                window.L.latLng(region.bbox[3], region.bbox[2])
+            )
+            map.fitBounds(bounds, { padding: [16, 16] })
+            if (Number.isFinite(explicitZoom)) {
+                map.setZoom(explicitZoom)
+                await waitForMapState(
+                    map,
+                    () => map.getZoom?.() === explicitZoom
+                )
+            } else {
+                await waitForMapState(map, () => !map._animatingZoom)
+            }
+        }
+        let actualZoom = map.getZoom?.() ?? zoom
+        const zoomMatches = () =>
+            Number.isFinite(Number(actualZoom)) &&
+            Math.abs(Number(actualZoom) - explicitZoom) < 1e-6
+        if (Number.isFinite(explicitZoom) && !zoomMatches()) {
+            // A layer/plugin moveend hook may finish a pending fitBounds just
+            // after setMapView. Re-apply the requested final view once through
+            // the same MMGIS facade and verify the settled map state.
+            const targetCenter = region.center
+                ? { lat: region.center[1], lng: region.center[0] }
+                : region.bbox
+                  ? {
+                        lat: (region.bbox[1] + region.bbox[3]) / 2,
+                        lng: (region.bbox[0] + region.bbox[2]) / 2,
+                    }
+                  : map.getCenter?.()
+            if (targetCenter && api?.setMapView) {
+                await api.setMapView(
+                    targetCenter.lat,
+                    targetCenter.lng,
+                    explicitZoom
+                )
+                await waitForMapState(
+                    map,
+                    () =>
+                        Math.abs(Number(map.getZoom?.()) - explicitZoom) < 1e-6,
+                    2500
+                )
+                actualZoom = map.getZoom?.() ?? actualZoom
+            }
+        }
+        if (Number.isFinite(explicitZoom) && !zoomMatches()) {
+            const message = `The ${region.name} was located, but MMGIS could not verify zoom level ${explicitZoom}.`
+            appendLine(message)
+            return {
+                ok: false,
+                message,
+                data: { ...region, requestedZoom: explicitZoom, actualZoom },
+                errorCode: 'MAP_VIEW_NOT_VERIFIED',
+            }
+        }
+        const message = `Zoomed to the ${region.name}${
+            Number.isFinite(actualZoom) ? ` at zoom level ${actualZoom}` : ''
+        }.`
+        appendLine(message)
+        return {
+            ok: true,
+            message,
+            data: { ...region, zoom: actualZoom, usedFacade },
+        }
+    }
     if (Array.isArray(payload?.center) && typeof payload?.zoom === 'number') {
         const [lon, lat] = payload.center
         if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
             throw new Error('Center coordinates must be finite numbers.')
         }
-        map.setView([lat, lon], payload.zoom)
-        appendLine(`Zoomed to center (${lon}, ${lat}) @ z${payload.zoom}`)
-        return
+        if (api?.setMapView) await api.setMapView(lat, lon, payload.zoom)
+        else map.setView([lat, lon], payload.zoom)
+        await waitForMapState(map, () => map.getZoom?.() === payload.zoom)
+        const actualZoom = map.getZoom?.()
+        if (actualZoom !== payload.zoom) {
+            const message = `MMGIS could not verify zoom level ${payload.zoom} at the requested center.`
+            appendLine(message)
+            return {
+                ok: false,
+                message,
+                data: {
+                    center: [lon, lat],
+                    requestedZoom: payload.zoom,
+                    actualZoom,
+                },
+                errorCode: 'MAP_VIEW_NOT_VERIFIED',
+            }
+        }
+        const message = `Zoomed to center (${lon}, ${lat}) at zoom level ${payload.zoom}.`
+        appendLine(message)
+        return {
+            ok: true,
+            message,
+            data: {
+                center: [lon, lat],
+                zoom: payload.zoom,
+                usedFacade: !!api?.setMapView,
+            },
+        }
     }
     if (Array.isArray(payload?.bbox) && payload.bbox.length === 4) {
         const [minLon, minLat, maxLon, maxLat] = payload.bbox
@@ -1330,11 +1565,20 @@ export async function zoom_view(_ctx, payload) {
             window.L.latLng(minLat, minLon),
             window.L.latLng(maxLat, maxLon)
         )
-        map.fitBounds(bounds, { padding: [16, 16] })
-        appendLine('Zoomed to bounding box')
-        return
+        if (api?.fitMapBounds) await api.fitMapBounds(payload.bbox)
+        else map.fitBounds(bounds, { padding: [16, 16] })
+        await waitForMapState(map, () => !map._animatingZoom)
+        const message = 'Zoomed to the requested bounding box.'
+        appendLine(message)
+        return {
+            ok: true,
+            message,
+            data: { bbox: payload.bbox, usedFacade: !!api?.fitMapBounds },
+        }
     }
-    throw new Error('Zoom request missing center/zoom or bbox parameters.')
+    throw new Error(
+        'Zoom request missing region, center/zoom, or bbox parameters.'
+    )
 }
 
 export async function render_layer_information(_ctx, payload) {
@@ -1342,18 +1586,20 @@ export async function render_layer_information(_ctx, payload) {
     if (!layerName || typeof layerName !== 'string') {
         throw new Error('layer_information requires a layer_name string.')
     }
-    const info = await fetchLayerMetadata(layerName)
+    let info
+    try {
+        info = await fetchLayerMetadata(layerName)
+    } catch (error) {
+        console.warn(
+            '[AgentChat] Structured layer metadata endpoint is unavailable.',
+            error
+        )
+        info = { items: [], match: null, unavailable: true }
+    }
     if (info.unavailable || !info.items.length) {
-        const fallback = await searchLayerInformation(
-            layerName,
-            payload?.original_query
-        )
-        const citations = formatCitations(fallback.citations)
-        appendLine(
-            (fallback.reply || `No information available for ${layerName}.`) +
-                (citations ? `\nSources:\n${citations}` : '')
-        )
-        return
+        const localResult = buildLiveLayerInformation(layerName)
+        appendLine(localResult.message)
+        return localResult
     }
     const item = info.items[0]
     const headline = item.name || layerName
@@ -1361,31 +1607,53 @@ export async function render_layer_information(_ctx, payload) {
         item.summary && item.summary.trim().length
             ? item.summary.trim()
             : 'No description available.'
-    appendLine(
-        `${headline}: ${summary}${
-            item.citation ? `\nSource: ${item.citation}` : ''
-        }`
-    )
+    const message = `${headline}: ${summary}${
+        item.citation ? `\nSource: ${item.citation}` : ''
+    }`
+    appendLine(message)
+    return {
+        ok: true,
+        message,
+        data: {
+            layer: headline,
+            source: 'agent-layer-metadata',
+            citation: item.citation || null,
+        },
+    }
 }
 
 export async function render_layer_mean(_ctx, payload) {
     const { layerMatch, resolvedLayerName, area } = resolveLayerContext(payload)
-    if (isExternalTileLayer(layerMatch)) {
-        const cfg = layerMatch.layer.config || {}
-        let host = ''
-        try { host = ` (${new URL(cfg.url || cfg.source).hostname})` } catch (_e) { /* ignore */ }
-        appendLine(
-            `**${resolvedLayerName}** is served from an external tile service${host}` +
-            ` and does not have a local raster file. ` +
-            `Raster statistics (mean, min, max, etc.) require a locally hosted COG or GeoTIFF layer. ` +
-            `You can still view this layer on the map and use the Time UI to browse available dates.`
-        )
-        return
+    const compatibility = assessLayerAnalysisCompatibility(
+        layerMatch.layer,
+        analysisCompatibilityOptions()
+    )
+    if (!compatibility.supported) {
+        const message =
+            `**${resolvedLayerName}** cannot provide scalar statistics. ${compatibility.reason} ` +
+            'Choose a layer listed by “Which layers can I analyze?” instead.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: { layer: resolvedLayerName, compatibility },
+            errorCode: 'UNSUPPORTED_ANALYSIS',
+        }
     }
-    drawAreaHighlight(area, 'mean', { color: '#0ea5e9', fillOpacity: 0.18 })
+    // A full-raster request has no reliable WGS84 footprint until the source
+    // is opened. Do not fit a custom/polar map to the synthetic world envelope
+    // used as a resolution sentinel; that can trigger a large invalid tile
+    // fan-out while analytics is running.
+    if (!area.fullLayerExtent) {
+        drawAreaHighlight(area, 'mean', {
+            color: '#0ea5e9',
+            fillOpacity: 0.18,
+        })
+    }
     const timeTokens = getLayerTimeTokens(layerMatch, payload)
     let analyticsBase = determineAnalyticsEndpoint(layerMatch, null)
     let analyticsLayer = null
+    let analyticsCatalogMiss = false
     if (analyticsBase) {
         try {
             analyticsLayer = await resolveAnalyticsLayerKey(
@@ -1393,10 +1661,15 @@ export async function render_layer_mean(_ctx, payload) {
                 layerMatch?.layer?.config,
                 analyticsBase
             )
-            analyticsBase = determineAnalyticsEndpoint(
-                layerMatch,
-                analyticsLayer
-            )
+            if (!analyticsLayer?.key) {
+                analyticsCatalogMiss = true
+                analyticsBase = null
+            } else {
+                analyticsBase = determineAnalyticsEndpoint(
+                    layerMatch,
+                    analyticsLayer
+                )
+            }
         } catch (catalogError) {
             console.warn('Analytics catalog unavailable:', catalogError)
             analyticsBase = null
@@ -1408,14 +1681,12 @@ export async function render_layer_mean(_ctx, payload) {
             analyticsLayer?.info?.time_range?.start ||
             null,
         end:
-            timeTokens.endTime ||
-            analyticsLayer?.info?.time_range?.end ||
-            null,
+            timeTokens.endTime || analyticsLayer?.info?.time_range?.end || null,
     }
     const matchConfidence =
         typeof analyticsLayer?.confidence === 'number'
             ? analyticsLayer.confidence
-            : layerMatch?.score ?? null
+            : (layerMatch?.score ?? null)
     let stats = null
     let datasetKey = analyticsLayer?.key || null
     let remoteError = null
@@ -1428,6 +1699,16 @@ export async function render_layer_mean(_ctx, payload) {
                 resolvedLayerName,
                 analyticsBase
             )
+            const semantics = assessProviderScalarSemantics(
+                layerMatch?.layer?.config || layerMatch?.layer || {},
+                stats
+            )
+            if (!semantics.ok) {
+                const error = new Error(semantics.message)
+                error.code = semantics.errorCode
+                remoteError = error
+                stats = null
+            }
         } catch (primaryError) {
             remoteError = primaryError
         }
@@ -1442,17 +1723,66 @@ export async function render_layer_mean(_ctx, payload) {
                 endTime: timeTokens.endTime,
             })
         } catch (localError) {
-            appendLine(
-                `Unable to compute mean for ${resolvedLayerName}: ${
-                    localError?.message || localError
-                }`
+            console.error(
+                `[AgentChat] Local statistics failed for ${resolvedLayerName}.`,
+                localError
             )
-            throw localError
+            const crsMessages = {
+                LOCAL_ANALYTICS_CRS_MISSING:
+                    'its GeoTIFF does not declare a coordinate reference system',
+                LOCAL_ANALYTICS_CRS_UNSUPPORTED:
+                    'its GeoTIFF uses an unknown or unsupported coordinate reference system',
+                LOCAL_ANALYTICS_CRS_TRANSFORM_FAILED:
+                    'its coordinates could not be transformed safely into the raster reference system',
+                LOCAL_ANALYTICS_BAND_UNAVAILABLE:
+                    'the requested raster band is not present in the selected GeoTIFF',
+                LOCAL_ANALYTICS_TRANSFORM_UNSUPPORTED:
+                    'its configured scalar display expression cannot be evaluated safely by local analytics',
+            }
+            const crsReason = crsMessages[localError?.code]
+            const message = crsReason
+                ? `Statistics could not be calculated for **${resolvedLayerName}** because ${crsReason}. Add valid CRS metadata, configure the required projection, or use a compatible analytics service.`
+                : `Statistics could not be calculated for **${resolvedLayerName}** because its scalar data source could not be reached or read. ` +
+                  'Try again, choose another analyzable layer, or verify that the data service is available.'
+            appendLine(message)
+            return {
+                ok: false,
+                message,
+                data: {
+                    layer: resolvedLayerName,
+                    area,
+                    analyticsCatalogMiss,
+                },
+                errorCode:
+                    (crsReason && localError.code) ||
+                    'STATISTICS_SOURCE_UNAVAILABLE',
+            }
         }
     }
     if (remoteError) {
-        console.warn('Analytics endpoint failed; used local statistics.', remoteError)
+        console.warn(
+            'Analytics endpoint failed; used local statistics.',
+            remoteError
+        )
     }
+
+    if (!stats || !Number.isFinite(Number(stats.mean))) {
+        console.error(
+            `[AgentChat] Statistics provider returned an invalid result for ${resolvedLayerName}.`,
+            stats
+        )
+        const message =
+            `Statistics could not be calculated for **${resolvedLayerName}** because the data provider returned no valid numerical mean. ` +
+            'Try again or choose another analyzable layer.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: { layer: resolvedLayerName, area },
+            errorCode: 'STATISTICS_RESULT_INVALID',
+        }
+    }
+    stats.mean = Number(stats.mean)
 
     let quantiles = null
     if (
@@ -1468,8 +1798,8 @@ export async function render_layer_mean(_ctx, payload) {
                     typeof stats.median === 'number'
                         ? stats.median
                         : typeof stats.q50 === 'number'
-                        ? stats.q50
-                        : undefined,
+                          ? stats.q50
+                          : undefined,
                 0.75: stats.q75,
             },
         }
@@ -1515,9 +1845,9 @@ export async function render_layer_mean(_ctx, payload) {
         lines.push(
             `Normalized layer name "${payload?.layer_name}" → "${resolvedLayerName}".`
         )
-    } else if (!analyticsLayer?.key && analyticsBase) {
+    } else if (analyticsCatalogMiss) {
         lines.push(
-            'Layer not found in analytics catalog; using default dataset.'
+            'The named layer was not present in the analytics catalog; statistics were computed from its active scalar source instead.'
         )
     }
     if (stats?.source === 'local-cog') {
@@ -1526,36 +1856,46 @@ export async function render_layer_mean(_ctx, payload) {
         )
     }
     lines.push(
-        `Confirmed area: ${area.label} (bbox ${area.bbox
-            .map((v) => v.toFixed(4))
-            .join(', ')})`
+        area.fullLayerExtent
+            ? 'Confirmed area: full layer extent.'
+            : `Confirmed area: ${area.label} (bbox ${area.bbox
+                  .map((v) => v.toFixed(4))
+                  .join(', ')})`
     )
+    const statisticsUnit =
+        typeof stats.unit === 'string' && stats.unit.trim()
+            ? ` ${stats.unit.trim()}`
+            : ''
     lines.push(
-        `Mean: ${stats.mean.toFixed(4)} (std ${
+        `Mean: ${stats.mean.toFixed(4)}${statisticsUnit} (std ${
             typeof stats.std === 'number' ? stats.std.toFixed(4) : 'n/a'
-        })`
+        }${statisticsUnit})`
     )
     if (quantiles?.quantiles) {
         const { quantiles: q } = quantiles
         if (typeof q[0.25] === 'number') {
-            lines.push(`25th percentile: ${q[0.25].toFixed(4)}`)
+            lines.push(
+                `25th percentile: ${q[0.25].toFixed(4)}${statisticsUnit}`
+            )
         }
         if (typeof q[0.5] === 'number') {
-            lines.push(`Median: ${q[0.5].toFixed(4)}`)
+            lines.push(`Median: ${q[0.5].toFixed(4)}${statisticsUnit}`)
         } else if (typeof stats.median === 'number') {
-            lines.push(`Median: ${stats.median.toFixed(4)}`)
+            lines.push(`Median: ${stats.median.toFixed(4)}${statisticsUnit}`)
         }
         if (typeof q[0.75] === 'number') {
-            lines.push(`75th percentile: ${q[0.75].toFixed(4)}`)
+            lines.push(
+                `75th percentile: ${q[0.75].toFixed(4)}${statisticsUnit}`
+            )
         }
     } else if (typeof stats.median === 'number') {
-        lines.push(`Median: ${stats.median.toFixed(4)}`)
+        lines.push(`Median: ${stats.median.toFixed(4)}${statisticsUnit}`)
     }
     if (typeof stats.min === 'number') {
-        lines.push(`Min: ${stats.min.toFixed(4)}`)
+        lines.push(`Min: ${stats.min.toFixed(4)}${statisticsUnit}`)
     }
     if (typeof stats.max === 'number') {
-        lines.push(`Max: ${stats.max.toFixed(4)}`)
+        lines.push(`Max: ${stats.max.toFixed(4)}${statisticsUnit}`)
     }
     if (typeof stats.valid_count === 'number') {
         const formatted =
@@ -1564,31 +1904,68 @@ export async function render_layer_mean(_ctx, payload) {
                 : String(stats.valid_count)
         lines.push(`Valid samples: ${formatted}`)
     }
-    if (stats.is_sampled) {
-        lines.push('Note: statistics computed from sampled data.')
+    if (stats.value_expression) {
+        lines.push(
+            `Applied configured scalar expression: ${stats.value_expression}`
+        )
     }
-
     // Explanation of how the statistics were computed
     lines.push('')
     lines.push('**How these statistics were computed:**')
-    if (stats?.source === 'local-cog') {
-        lines.push(
-            'The raster layer (Cloud-Optimized GeoTIFF) was read directly in the browser using the geotiff.js library. ' +
-            'Pixel values within the selected bounding box were extracted, NoData pixels were excluded, ' +
-            'and descriptive statistics (mean, std, min, max, median, percentiles) were calculated from the remaining valid samples.'
-        )
-    } else {
-        const layerPath = stats?.layer_path || ''
-        lines.push(
-            'Statistics were computed on the server by reading the locally hosted raster file' +
-            (layerPath ? ` (\`${layerPath.split('/').pop()}\`)` : '') +
-            ' using a Python-based raster analysis pipeline (rasterio/numpy). ' +
-            'All valid pixels within the requested bounding box were analyzed, excluding NoData values. ' +
-            'The result includes descriptive statistics: mean, standard deviation, min, max, median, and interquartile range.'
-        )
-    }
+    lines.push(...describeStatisticsProvenance(stats))
 
-    appendLine(lines.join('\n'))
+    const message = lines.join('\n')
+    appendLine(message)
+    return {
+        ok: true,
+        message,
+        data: {
+            layer: resolvedLayerName,
+            area,
+            stats,
+            quantiles: quantiles?.quantiles || null,
+            source:
+                stats?.source || (analyticsBase ? 'analytics-service' : null),
+        },
+    }
+}
+
+export function findFirstVisibleAnalyzableLayer(index = null) {
+    return selectFirstVisibleAnalyzableLayer(
+        index || buildLayerIndex(),
+        analysisCompatibilityOptions()
+    )
+}
+
+export async function render_statistics_first_visible(ctx, payload = {}) {
+    const selected = findFirstVisibleAnalyzableLayer()
+    if (!selected) {
+        const message =
+            'No analyzable scalar data layer is currently visible. Turn on a layer listed by “Which layers can I analyze?” and try again.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'NO_VISIBLE_ANALYZABLE_LAYER',
+        }
+    }
+    const result = await render_layer_mean(ctx, {
+        ...payload,
+        layer_name: selected.layerName,
+        geographical_area:
+            payload.geographical_area || payload.area || 'current view',
+    })
+    return {
+        ...result,
+        message: result.ok
+            ? `Statistics for the first visible analyzable layer, **${selected.layerName}**:\n${result.message}`
+            : result.message,
+        data: {
+            ...(result.data || {}),
+            selectedLayer: selected.layerName,
+        },
+    }
 }
 
 export async function render_local_calculate_mean(_ctx, payload) {
@@ -1610,14 +1987,14 @@ export async function render_local_calculate_mean(_ctx, payload) {
                 typeof stats.std === 'number' ? stats.std.toFixed(4) : 'n/a'
             }`,
             `Median: ${
-                typeof stats.median === 'number' ? stats.median.toFixed(4) : 'n/a'
+                typeof stats.median === 'number'
+                    ? stats.median.toFixed(4)
+                    : 'n/a'
             }`,
         ]
         appendLine(lines.join('\n'))
     } catch (error) {
-        appendLine(
-            `Unable to compute local mean: ${error?.message || error}`
-        )
+        appendLine(`Unable to compute local mean: ${error?.message || error}`)
         throw error
     }
 }
@@ -1635,9 +2012,7 @@ export async function render_local_calculate_minmax(_ctx, payload) {
             `Local min/max for ${resolvedLayerName}`,
             `Min: ${typeof stats.min === 'number' ? stats.min.toFixed(4) : 'n/a'}`,
             `Max: ${typeof stats.max === 'number' ? stats.max.toFixed(4) : 'n/a'}`,
-            `Valid samples: ${
-                stats.count.toLocaleString?.() || String(stats.count)
-            }`,
+            `Valid samples: ${stats.count.toLocaleString?.() || String(stats.count)}`,
         ]
         appendLine(lines.join('\n'))
     } catch (error) {
@@ -1663,16 +2038,12 @@ export async function render_local_calculate_std(_ctx, payload) {
                 typeof stats.std === 'number' ? stats.std.toFixed(4) : 'n/a'
             }`,
             `Mean: ${stats.mean.toFixed(4)}`,
-            `Valid samples: ${
-                stats.count.toLocaleString?.() || String(stats.count)
-            }`,
+            `Valid samples: ${stats.count.toLocaleString?.() || String(stats.count)}`,
         ]
         appendLine(lines.join('\n'))
     } catch (error) {
         appendLine(
-            `Unable to compute local standard deviation: ${
-                error?.message || error
-            }`
+            `Unable to compute local standard deviation: ${error?.message || error}`
         )
         throw error
     }
@@ -1680,9 +2051,8 @@ export async function render_local_calculate_std(_ctx, payload) {
 
 export async function render_local_calculate_histogram(_ctx, payload) {
     try {
-        const { layerMatch, resolvedLayerName, area } = resolveLayerContext(
-            payload
-        )
+        const { layerMatch, resolvedLayerName, area } =
+            resolveLayerContext(payload)
         noteLocalAnalytics(resolvedLayerName, 'local-histogram')
         drawAreaHighlight(area, 'local-histogram', {
             color: '#0284c7',
@@ -1726,9 +2096,8 @@ export async function render_local_calculate_histogram(_ctx, payload) {
 
 export async function render_local_threshold_mask(_ctx, payload) {
     try {
-        const { layerMatch, resolvedLayerName, area } = resolveLayerContext(
-            payload
-        )
+        const { layerMatch, resolvedLayerName, area } =
+            resolveLayerContext(payload)
         const operator =
             typeof payload?.operator === 'string' && payload.operator.trim()
                 ? payload.operator.trim()
@@ -1761,14 +2130,21 @@ export async function render_local_threshold_mask(_ctx, payload) {
         const coveragePct = (result.coverage * 100).toFixed(2)
         const lines = [
             `Local threshold mask for ${resolvedLayerName} (${operator} ${value})`,
-            `Matches: ${result.matchCount.toLocaleString()} of ${result.totalCount.toLocaleString()} pixels (${coveragePct}% coverage).`,
+            `Matches: ${result.matchCount.toLocaleString()} of ${result.totalCount.toLocaleString()} valid sampled cells (${coveragePct}% of the sampled valid cells).`,
         ]
+        if (result.isSampled) {
+            lines.push(
+                `The bounded sample contains ${result.sampleCount.toLocaleString()} grid cells representing an estimated ${result.populationCount.toLocaleString()} source cells; this mask is approximate.`
+            )
+        }
         if (result.matchCount > points.length) {
             lines.push(
                 `Displayed ${points.length.toLocaleString()} representative points on the map (sampled from ${result.matchCount.toLocaleString()} matches).`
             )
         } else {
-            lines.push('All matching pixels are visualized on the map.')
+            lines.push(
+                'All matching cells from the bounded sample are visualized on the map.'
+            )
         }
         appendLine(lines.join('\n'))
     } catch (error) {
@@ -1828,16 +2204,20 @@ export async function render_contour_overlay(_ctx, payload) {
     let resolvedSourceUrl =
         typeof sourceUrl === 'string' ? sourceUrl.trim() : ''
     if (!resolvedSourceUrl) {
-        throw new Error(
-            `Layer "${layerName}" is missing a COG source URL for highlighting.`
-        )
+        const message = `Layer "${layerName}" does not expose a resolvable COG source for threshold highlighting.`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'HIGHLIGHT_SOURCE_UNAVAILABLE',
+        }
     }
 
     // Resolve {time} placeholder using the current TimeControl time
     if (resolvedSourceUrl.includes('{time}')) {
         const timeFmt = layerConfig.time?.format || '%Y-%m-%dT%H:%M:%SZ'
-        const currentIso =
-            TimeControl.endTime || TimeControl.currentTime || ''
+        const currentIso = TimeControl.endTime || TimeControl.currentTime || ''
         if (currentIso) {
             const d = new Date(currentIso)
             const pad2 = (n) => String(n).padStart(2, '0')
@@ -1930,48 +2310,82 @@ export async function render_layer_difference(_ctx, payload) {
     if (!matchA || !matchB) {
         throw new Error('Unable to match the requested layers for difference.')
     }
-
-    // Ensure both layers are visible before comparing
-    const api = window.mmgisAPI
-    if (api && api.toggleLayer) {
-        if (!matchA.layer?.visible) {
-            try { api.toggleLayer(matchA.id || matchA.layer?.name, true) } catch (_) {}
-            appendLine(`Turned on layer: **${matchA.displayName}**`)
-        }
-        if (!matchB.layer?.visible) {
-            try { api.toggleLayer(matchB.id || matchB.layer?.name, true) } catch (_) {}
-            appendLine(`Turned on layer: **${matchB.displayName}**`)
+    const compatibilityA = assessLayerAnalysisCompatibility(
+        matchA.layer,
+        analysisCompatibilityOptions()
+    )
+    const compatibilityB = assessLayerAnalysisCompatibility(
+        matchB.layer,
+        analysisCompatibilityOptions()
+    )
+    if (!compatibilityA.supported || !compatibilityB.supported) {
+        const unsupported = !compatibilityA.supported
+            ? `${matchA.displayName}: ${compatibilityA.reason}`
+            : `${matchB.displayName}: ${compatibilityB.reason}`
+        const message = `Cannot calculate a numeric layer difference. ${unsupported}`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: { compatibilityA, compatibilityB },
+            errorCode: 'UNSUPPORTED_ANALYSIS',
         }
     }
-
     // Get current map time
     let currentTimeStr = ''
     try {
         const tc = TimeControl
-        const t = tc?.getTime?.() || tc?.currentTime || tc?.getCurrent?.() || null
+        const t =
+            tc?.getTime?.() || tc?.currentTime || tc?.getCurrent?.() || null
         if (t) {
-            currentTimeStr = typeof t === 'string' ? t : new Date(t).toISOString()
+            currentTimeStr =
+                typeof t === 'string' ? t : new Date(t).toISOString()
         }
         // Also try layer live instance time
         if (!currentTimeStr) {
             const optsA = matchA?.layer?.liveInstance?.options || {}
             const optsB = matchB?.layer?.liveInstance?.options || {}
-            currentTimeStr = optsA.endtime || optsA.starttime || optsB.endtime || optsB.starttime || ''
+            currentTimeStr =
+                optsA.endtime ||
+                optsA.starttime ||
+                optsB.endtime ||
+                optsB.starttime ||
+                ''
         }
     } catch (_) {}
 
-    const timeLabel = currentTimeStr ? currentTimeStr.split('T')[0] : 'latest available'
-    appendLine(`Computing pixel-by-pixel difference for **${timeLabel}**: **${matchA.displayName}** minus **${matchB.displayName}**...`)
+    const timeLabel = currentTimeStr
+        ? currentTimeStr.split('T')[0]
+        : 'latest available'
+    const comparisonArea = resolveArea(
+        payload?.geographical_area || payload?.area || 'current view'
+    )
+    if (!comparisonArea) {
+        const message = 'Unable to resolve the requested comparison area.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'AREA_NOT_FOUND',
+        }
+    }
+    appendLine(
+        `Computing pixel-by-pixel difference for **${timeLabel}**: **${matchA.displayName}** minus **${matchB.displayName}**...`
+    )
 
     // Use the backend analytics/difference endpoint which works with actual tiff files
     try {
         const origin = window.location.origin
-        const pathname = (window.location.pathname || '').replace(/\/$/g, '')
-        const nameA = encodeURIComponent(matchA.displayName || matchA.layer?.name || layerA)
-        const nameB = encodeURIComponent(matchB.displayName || matchB.layer?.name || layerB)
-        const timeParam = currentTimeStr ? `&time=${encodeURIComponent(currentTimeStr)}` : ''
-        const missionParam = L_.mission ? `&mission=${encodeURIComponent(L_.mission)}` : ''
-        const url = `${origin}${pathname}/api/agent/analytics/difference?layer_a=${nameA}&layer_b=${nameB}${timeParam}${missionParam}`
+        const url = buildDifferenceRequestUrl({
+            baseUrl: buildRendererAgentEndpoint('/analytics/difference'),
+            origin,
+            layerA: matchA.displayName || matchA.layer?.name || layerA,
+            layerB: matchB.displayName || matchB.layer?.name || layerB,
+            time: currentTimeStr,
+            mission: L_.mission || '',
+            bbox: comparisonArea.bbox,
+        })
 
         const res = await fetch(url)
         const data = await res.json()
@@ -1980,99 +2394,105 @@ export async function render_layer_difference(_ctx, payload) {
             throw new Error(data.error || `Server returned ${res.status}`)
         }
 
-        // Display results
-        const lines = []
-        lines.push(`\n**Difference: ${matchA.displayName} - ${matchB.displayName}**`)
-        lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-
-        const scale = (data.mean_a != null && data.mean_a <= 1.0) ? 100 : 1
-        const unit = scale === 100 ? '%' : ''
-
-        if (data.mean_a != null) lines.push(`**${matchA.displayName}** mean: ${(data.mean_a * scale).toFixed(1)}${unit}`)
-        if (data.mean_b != null) lines.push(`**${matchB.displayName}** mean: ${(data.mean_b * scale).toFixed(1)}${unit}`)
-        lines.push('')
-        lines.push(`**Difference Statistics:**`)
-        lines.push(`Mean: ${(data.mean * scale).toFixed(2)}${unit}`)
-        lines.push(`Std Dev: ${(data.std * scale).toFixed(2)}${unit}`)
-        lines.push(`Min: ${(data.min * scale).toFixed(2)}${unit}, Max: ${(data.max * scale).toFixed(2)}${unit}`)
-        lines.push(`Median: ${(data.median * scale).toFixed(2)}${unit}`)
-        lines.push(`25th percentile: ${(data.q25 * scale).toFixed(2)}${unit}`)
-        lines.push(`75th percentile: ${(data.q75 * scale).toFixed(2)}${unit}`)
-        lines.push('')
-        lines.push(`Valid pixels: ${data.valid_count?.toLocaleString()} / ${data.total_count?.toLocaleString()}`)
-
-        // Interpretation
-        lines.push('')
-        const absMean = Math.abs(data.mean * scale)
-        if (absMean < 1) {
-            lines.push('The two datasets show good agreement (mean difference < 1' + unit + ')')
-        } else if (data.mean > 0) {
-            lines.push(`Prediction is ${absMean.toFixed(1)}${unit} higher than ground truth on average`)
-        } else {
-            lines.push(`Ground truth is ${absMean.toFixed(1)}${unit} higher than prediction on average`)
+        const semanticsA = assessProviderScalarSemantics(
+            matchA.layer?.config || matchA.layer || {},
+            differenceProviderSemantics(data, 'layer_a')
+        )
+        const semanticsB = assessProviderScalarSemantics(
+            matchB.layer?.config || matchB.layer || {},
+            differenceProviderSemantics(data, 'layer_b')
+        )
+        if (!semanticsA.ok || !semanticsB.ok) {
+            const semantics = !semanticsA.ok ? semanticsA : semanticsB
+            const error = new Error(semantics.message)
+            error.code = semantics.errorCode
+            throw error
         }
 
-        appendLine(lines.join('\n'))
+        // Only use a unit when the analytics service declares it. A value in
+        // [0, 1] is not, by itself, proof that the layer represents percent.
+        const declaredUnit =
+            typeof data.unit === 'string'
+                ? data.unit
+                : typeof data.units === 'string'
+                  ? data.units
+                  : ''
+        const message = formatDifferenceStatistics(data, {
+            layerA: matchA.displayName,
+            layerB: matchB.displayName,
+            unit: declaredUnit,
+        })
+        appendLine(message)
+        return {
+            ok: true,
+            message,
+            data: {
+                layerA: matchA.displayName,
+                layerB: matchB.displayName,
+                time: currentTimeStr || null,
+                area: comparisonArea,
+                statistics: data,
+                source: 'analytics-service',
+            },
+        }
     } catch (error) {
-        console.error('Layer difference failed:', error)
-        appendLine(`Failed to compute difference: ${error.message}`)
-    }
-}
-
-function renderSimulatedDifference(matchA, matchB, area) {
-    const diffValue = deterministicNumber(
-        `${normalizeName(matchA.displayName)}-${normalizeName(matchB.displayName)}`,
-        -25,
-        25
-    )
-    const positive = diffValue >= 0
-    const color = positive ? '#2563eb' : '#d97706'
-    const { group, bounds } = drawAreaHighlight(area, 'difference', {
-        color,
-        fillOpacity: 0.32,
-    })
-    const diagonal = window.L.polyline(
-        [
-            [area.bbox[1], area.bbox[0]],
-            [area.bbox[3], area.bbox[2]],
-        ],
-        { color, weight: 1, dashArray: '6 8' }
-    )
-    diagonal.addTo(group)
-    appendLine(
-        `Simulated difference (${matchA.displayName} - ${matchB.displayName}): ${diffValue.toFixed(2)}`
-    )
-    appendLine(`Note: This is a placeholder value. Real data analysis requires COG sources.`)
-    ensureMap().fitBounds(bounds, { padding: [18, 18] })
-}
-
-function displayDifferenceOverlay(visualization, area) {
-    const map = ensureMap()
-    const bounds = L.latLngBounds(
-        [area.bbox[1], area.bbox[0]],
-        [area.bbox[3], area.bbox[2]]
-    )
-    
-    // Create image overlay from canvas
-    const imageOverlay = L.imageOverlay(
-        visualization.dataUrl,
-        bounds,
-        {
-            opacity: 0.7,
-            interactive: false
+        console.warn('[AgentChat] Backend layer difference failed.', error)
+        try {
+            const statistics = await calculateLocalAlignedDifference(
+                matchA,
+                matchB,
+                comparisonArea,
+                { time: currentTimeStr || undefined }
+            )
+            const formatted = formatDifferenceStatistics(statistics, {
+                layerA: matchA.displayName,
+                layerB: matchB.displayName,
+                unit: statistics.unit || '',
+            })
+            const provenance = describeStatisticsProvenance(statistics)
+            const message = [
+                formatted,
+                '',
+                'The local comparison proceeded only after matching CRS, bounds, affine grids, resampling dimensions, and shared valid-cell masks were confirmed.',
+                ...provenance,
+            ].join('\n')
+            appendLine(message)
+            return {
+                ok: true,
+                message,
+                data: {
+                    layerA: matchA.displayName,
+                    layerB: matchB.displayName,
+                    time: currentTimeStr || null,
+                    area: comparisonArea,
+                    statistics,
+                    source: statistics.source,
+                },
+            }
+        } catch (localError) {
+            console.warn(
+                '[AgentChat] Proven aligned local difference is unavailable.',
+                localError
+            )
+            const message =
+                `A scientifically aligned difference between **${matchA.displayName}** and ` +
+                `**${matchB.displayName}** is unavailable from the current analytics provider. ` +
+                'Copilot did not subtract the rasters locally because their CRS, affine grid, masks, units, and NoData semantics could not all be proven compatible.'
+            appendLine(message)
+            return {
+                ok: false,
+                message,
+                data: {
+                    layerA: matchA.displayName,
+                    layerB: matchB.displayName,
+                    area: comparisonArea,
+                },
+                errorCode:
+                    localError?.code ||
+                    'DIFFERENCE_ALIGNMENT_PROVIDER_REQUIRED',
+            }
         }
-    )
-    
-    // Store in overlays
-    const store = window.__mmgisAgentChatOverlays = window.__mmgisAgentChatOverlays || {}
-    if (store.differenceOverlay) {
-        store.differenceOverlay.remove()
     }
-    store.differenceOverlay = imageOverlay
-    imageOverlay.addTo(map)
-    
-    // Add legend
-    addDifferenceLegend(visualization.colorScale)
 }
 
 export async function render_layer_summary(_ctx, payload) {
@@ -2104,61 +2524,206 @@ export async function render_layer_summary(_ctx, payload) {
 }
 
 // ——— Threshold highlight overlay (ephemeral) ————————————————————————
-function parseUnits(raw, fallback = 1) {
-    const s = String(raw || '')
-        .trim()
-        .toLowerCase()
-    if (!s) return fallback
-    if (s === 'm' || s === 'meter' || s === 'meters') return 1
-    if (s === 'cm' || s === 'centimeter' || s === 'centimeters') return 0.01
-    if (s === 'mm' || s === 'millimeter' || s === 'millimeters') return 0.001
-    return fallback
-}
-
 function getHighlightStore() {
     const store = (window.__mmgisAgentChatOverlays =
         window.__mmgisAgentChatOverlays || {})
     return store
 }
 
-export async function render_threshold_highlight(_ctx, payload) {
-    const variable = (
-        payload?.variable ||
-        payload?.name ||
+function resolveThresholdScope(payload = {}) {
+    const explicitBbox = payload.bbox || payload.geographical_area?.bbox
+    if (isValidBbox(explicitBbox)) {
+        return {
+            ok: true,
+            kind: 'explicit-bounds',
+            label: 'the requested bounds',
+            bbox: explicitBbox.map(Number),
+        }
+    }
+    const requested = payload.geographical_area ?? payload.area
+    if (requested == null || String(requested).trim() === '') {
+        return {
+            ok: true,
+            kind: 'full-raster',
+            label: 'the full raster source',
+            bbox: null,
+        }
+    }
+    const normalized = normalizeName(requested)
+    if (
+        ['full layer extent', 'full raster', 'entire layer', 'global'].includes(
+            normalized
+        )
+    ) {
+        return {
+            ok: true,
+            kind: 'full-raster',
+            label: 'the full raster source',
+            bbox: null,
+        }
+    }
+    if (
+        [
+            'current view',
+            'current map view',
+            'visible map',
+            'map view',
+        ].includes(normalized)
+    ) {
+        const area = resolveArea('current view')
+        if (area && isValidBbox(area.bbox)) {
+            return {
+                ok: true,
+                kind: 'current-view',
+                label: 'the current map view',
+                bbox: area.bbox.map(Number),
+            }
+        }
+    }
+    const configuredArea = resolveArea(requested)
+    if (configuredArea && isValidBbox(configuredArea.bbox)) {
+        return {
+            ok: true,
+            kind: 'named-area',
+            label: configuredArea.label || String(requested),
+            bbox: configuredArea.bbox.map(Number),
+        }
+    }
+    return {
+        ok: false,
+        errorCode: 'HIGHLIGHT_AREA_UNRESOLVED',
+        message: `The requested highlight area "${requested}" could not be resolved to map bounds. Use the current view, a configured named area, explicit bounds, or the full layer extent.`,
+    }
+}
+
+function waitForFirstTileOutcome(layer, timeoutMs = 10000) {
+    if (!layer || typeof layer.on !== 'function') {
+        return Promise.resolve({
+            ok: false,
+            errorCode: 'HIGHLIGHT_RENDERER_UNAVAILABLE',
+            message:
+                'The highlight tile layer cannot report whether it loaded.',
+        })
+    }
+    return new Promise((resolve) => {
+        let timer = null
+        let settled = false
+        const finish = (result) => {
+            if (settled) return
+            settled = true
+            if (timer) clearTimeout(timer)
+            layer.off?.('tileload', onLoad)
+            layer.off?.('load', onLoad)
+            layer.off?.('tileerror', onError)
+            resolve(result)
+        }
+        const onLoad = () => finish({ ok: true })
+        const onError = () =>
+            finish({
+                ok: false,
+                errorCode: 'HIGHLIGHT_TILE_LOAD_FAILED',
+                message:
+                    'The threshold overlay could not load raster tiles from the configured source.',
+            })
+        layer.on('tileload', onLoad)
+        layer.on('load', onLoad)
+        layer.on('tileerror', onError)
+        timer = setTimeout(
+            () =>
+                finish({
+                    ok: false,
+                    errorCode: 'HIGHLIGHT_TILE_LOAD_TIMEOUT',
+                    message:
+                        'The threshold overlay did not load a raster tile before the request timed out.',
+                }),
+            timeoutMs
+        )
+    })
+}
+
+export async function render_threshold_highlight(ctx, payload) {
+    const requestedLayer = (
         payload?.layer_name ||
+        payload?.name ||
+        payload?.variable ||
         ''
     ).toString()
-    const operator = (payload?.operator || '>').toString()
-    let value = Number(payload?.value)
-    if (!Number.isFinite(value)) {
-        throw new Error(
-            "I couldn't parse a numeric threshold. Try, e.g., 'ssha > 0.2 m'."
-        )
+    const variable = (payload?.variable || requestedLayer).toString()
+    const operator = normalizeThresholdOperator(payload?.operator || '>')
+    if (!operator) {
+        const message = `Unsupported threshold operator "${payload?.operator}". Use >, >=, <, <=, =, ==, or between.`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'UNSUPPORTED_THRESHOLD_OPERATOR',
+        }
     }
-    const unitMult = parseUnits(payload?.unit, 1)
-    value = value * unitMult
-
     const index = buildLayerIndex()
-    const q = normalizeName(variable)
-    // Search visible layers first, then fall back to all layers
-    let candidates = index
-        .filter((i) => i.visible)
-        .filter((i) =>
-            i.normalizedAliases.some((a) => a.normalized.includes(q))
-        )
-    if (!candidates.length) {
-        candidates = index.filter((i) =>
-            i.normalizedAliases.some((a) => a.normalized.includes(q))
-        )
+    // Resolve visible layers first, but never silently choose among multiple
+    // equally plausible layer names.
+    let resolution = resolveLayerSelection({
+        requestedName: requestedLayer,
+        userQuery:
+            ctx?.originalMessage || payload?.original_query || requestedLayer,
+        layers: index.filter((layer) => layer.visible),
+    })
+    if (!resolution?.match && !resolution?.ambiguous) {
+        resolution = resolveLayerSelection({
+            requestedName: requestedLayer,
+            userQuery:
+                ctx?.originalMessage ||
+                payload?.original_query ||
+                requestedLayer,
+            layers: index,
+        })
     }
-    if (!candidates.length) {
-        appendLine(
-            `I couldn't find a ${variable} layer to highlight.`
-        )
-        return
+    if (resolution?.ambiguous) {
+        const options = (resolution.candidates || [])
+            .map((candidate) =>
+                candidate.groupPath
+                    ? `${candidate.groupPath} > ${candidate.displayName}`
+                    : candidate.displayName
+            )
+            .filter(Boolean)
+        const message = `More than one layer matches "${requestedLayer}". Choose one: ${options.join(
+            ' | '
+        )}.`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: { candidates: options },
+            errorCode: 'AMBIGUOUS_LAYER',
+        }
     }
-    const target = candidates[candidates.length - 1]
+    const target = resolution?.match?.layer
+    if (!target) {
+        const message = `I couldn't find a ${requestedLayer} layer to highlight.`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'LAYER_NOT_FOUND',
+        }
+    }
     const layerName = target.displayName || target.name
+    const compatibility = assessLayerAnalysisCompatibility(
+        target,
+        analysisCompatibilityOptions()
+    )
+    if (!compatibility.supported) {
+        const message = `Cannot highlight values for **${layerName}**: ${compatibility.reason}`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: { layer: layerName, compatibility },
+            errorCode: 'UNSUPPORTED_ANALYSIS',
+        }
+    }
 
     // Auto-turn on the layer if it's not visible
     if (!target.visible) {
@@ -2173,6 +2738,10 @@ export async function render_threshold_highlight(_ctx, payload) {
         (layerMeta && layerMeta.config ? layerMeta.config : layerMeta) || {}
     const sourceUrl =
         layerConfig.cogUrl ||
+        layerConfig.demtileurl ||
+        layerConfig.demUrl ||
+        layerConfig.demurl ||
+        layerConfig.dem ||
         layerConfig.url ||
         layerConfig.source ||
         layerConfig.path ||
@@ -2189,16 +2758,98 @@ export async function render_threshold_highlight(_ctx, payload) {
     let resolvedSourceUrl =
         typeof sourceUrl === 'string' ? sourceUrl.trim() : ''
     if (!resolvedSourceUrl) {
-        throw new Error(
-            `Layer "${layerName}" is missing a COG source URL for highlighting.`
-        )
+        const message = `Layer "${layerName}" does not expose a resolvable COG source for threshold highlighting.`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'HIGHLIGHT_SOURCE_UNAVAILABLE',
+        }
+    }
+
+    const bandResolution = resolveThresholdBand(
+        layerConfig,
+        variable,
+        layerName,
+        payload?.band
+    )
+    if (!bandResolution.ok) {
+        appendLine(bandResolution.message)
+        return {
+            ok: false,
+            message: bandResolution.message,
+            data: null,
+            errorCode: bandResolution.errorCode,
+        }
+    }
+    const declaredUnit = resolveThresholdUnit(
+        layerConfig,
+        variable,
+        bandResolution.band
+    )
+    const convertedThreshold = convertThresholdValuesToLayerUnit({
+        operator,
+        value: payload?.value,
+        valueMin: payload?.value_min,
+        valueMax: payload?.value_max,
+        inputUnit: payload?.unit,
+        declaredUnit,
+    })
+    if (!convertedThreshold.ok) {
+        appendLine(convertedThreshold.message)
+        return {
+            ok: false,
+            message: convertedThreshold.message,
+            data: { layer: layerName, declaredUnit },
+            errorCode: convertedThreshold.errorCode,
+        }
+    }
+    const scalarTransform = resolveScalarRasterTransform(
+        layerConfig,
+        Number(bandResolution.band.replace(/^b/i, ''))
+    )
+    if (!scalarTransform.ok) {
+        appendLine(scalarTransform.message)
+        return {
+            ok: false,
+            message: scalarTransform.message,
+            data: { layer: layerName, band: bandResolution.band },
+            errorCode: scalarTransform.errorCode,
+        }
+    }
+    const threshold = buildThresholdExpression({
+        operator,
+        value: convertedThreshold.value,
+        valueMin: convertedThreshold.valueMin,
+        valueMax: convertedThreshold.valueMax,
+        band: bandResolution.band,
+        valueExpression: scalarTransform.expression,
+    })
+    if (!threshold.ok) {
+        appendLine(threshold.message)
+        return {
+            ok: false,
+            message: threshold.message,
+            data: null,
+            errorCode: threshold.errorCode,
+        }
+    }
+    const scope = resolveThresholdScope(payload)
+    if (!scope.ok) {
+        appendLine(scope.message)
+        return {
+            ok: false,
+            message: scope.message,
+            data: null,
+            errorCode: scope.errorCode,
+        }
     }
 
     // Resolve {time} placeholder using the current TimeControl time
     if (resolvedSourceUrl.includes('{time}')) {
         const timeFmt = layerConfig.time?.format || '%Y-%m-%dT%H:%M:%SZ'
-        const currentIso =
-            TimeControl.endTime || TimeControl.currentTime || ''
+        const currentIso = TimeControl.endTime || TimeControl.currentTime || ''
         if (currentIso) {
             const d = new Date(currentIso)
             const pad2 = (n) => String(n).padStart(2, '0')
@@ -2218,37 +2869,54 @@ export async function render_threshold_highlight(_ctx, payload) {
         }
     }
 
-    // For STAC collection layers, resolve to an actual COG file via the backend
-    if (resolvedSourceUrl.toLowerCase().startsWith('stac-collection:') ||
-        (layerConfig.sourceType || '').toLowerCase() === 'stac-collection') {
-        const collectionName = resolvedSourceUrl.replace(/^stac-collection:/i, '').split('?')[0]
-        try {
-            const origin = window.location.origin
-            const pathname = (window.location.pathname || '').replace(/\/$/g, '')
-            const missionParam = L_.mission
-                ? `&mission=${encodeURIComponent(L_.mission)}`
-                : ''
-            const cogRes = await fetch(
-                `${origin}${pathname}/api/agent/analytics/resolve-cog?layer=${encodeURIComponent(collectionName)}${missionParam}`
-            )
-            if (cogRes.ok) {
-                const cogData = await cogRes.json()
-                if (cogData.url) {
-                    resolvedSourceUrl = cogData.url
-                }
-            }
-        } catch (_) {}
+    if (/\{(?:time|starttime|endtime)\}/i.test(resolvedSourceUrl)) {
+        const message = `Layer "${layerName}" requires a current time before its COG source can be resolved.`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'HIGHLIGHT_TIME_UNRESOLVED',
+        }
     }
+
+    const isStacCollection =
+        resolvedSourceUrl.toLowerCase().startsWith('stac-collection:') ||
+        (layerConfig.sourceType || '').toLowerCase() === 'stac-collection'
+    const stacCollectionSource = isStacCollection
+        ? resolvedSourceUrl.toLowerCase().startsWith('stac-collection:')
+            ? resolvedSourceUrl
+            : `stac-collection:${resolvedSourceUrl}`
+        : null
 
     // Resolve relative path using L_.getUrl() so TiTiler can find the file
     // (adds mission path prefix and ../../ for non-Docker environments)
-    if (!resolvedSourceUrl.startsWith('/Missions')) {
+    if (
+        !isStacCollection &&
+        !resolvedSourceUrl.startsWith('/Missions') &&
+        !/^(?:https?:)?\/\//i.test(resolvedSourceUrl)
+    ) {
+        if (typeof L_?.getUrl !== 'function') {
+            const message = `Layer "${layerName}" has a relative source that MMGIS could not resolve.`
+            appendLine(message)
+            return {
+                ok: false,
+                message,
+                data: null,
+                errorCode: 'HIGHLIGHT_SOURCE_UNAVAILABLE',
+            }
+        }
         resolvedSourceUrl = L_.getUrl('tile', resolvedSourceUrl, layerConfig)
     }
-
-    // If value looks like a percentage (>=1) but data is 0-1, convert
-    if (value >= 1 && layerConfig.cogMax != null && layerConfig.cogMax <= 1) {
-        value = value / 100
+    if (typeof resolvedSourceUrl !== 'string' || !resolvedSourceUrl.trim()) {
+        const message = `Layer "${layerName}" source resolution returned no usable COG URL.`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'HIGHLIGHT_SOURCE_UNAVAILABLE',
+        }
     }
 
     const map = ensureMap()
@@ -2264,76 +2932,453 @@ export async function render_threshold_highlight(_ctx, payload) {
     const tileMatrixSet = layerConfig.tileMatrixSet || 'WebMercatorQuad'
     const tileMatrixStr = String(tileMatrixSet)
     const baseRoot = `${window.location.origin}${(
-        window.location.pathname || ''
-    ).replace(/\/$/g, '')}`
+        window.mmgisglobal?.ROOT_PATH || ''
+    ).replace(/\/+$/, '')}`
 
-    const op =
-        operator === '>=' ||
-        operator === '<=' ||
-        operator === '<' ||
-        operator === '>'
-            ? operator
-            : '>'
     // Multiply boolean by 1 to produce numeric 0/1 (TiTiler can't render bool).
     // rescale=0,1 maps 0→0 and 1→255 in pixel space.
     // Colormap keys must match the RESCALED pixel values (0 and 255).
-    const expr = `(b1${op}${value})*1`
     const params = new URLSearchParams()
     params.set('url', resolvedSourceUrl)
-    params.set('expression', expr)
+    params.set('expression', threshold.expression)
     params.set('resampling', 'nearest')
     params.set('rescale', '0,1')
     params.set(
         'colormap',
-        JSON.stringify({ '0': [0, 0, 0, 0], '255': [255, 255, 0, 255] })
+        JSON.stringify({ 0: [0, 0, 0, 0], 255: [255, 255, 0, 255] })
     )
 
-    store.highlightTile = window.L.tileLayer(
-        `${baseRoot}/titiler/cog/tiles/${tileMatrixStr}/{z}/{x}/{y}.png?${params.toString()}`,
-        {
-            opacity: 0.6,
-            interactive: false,
-            pane: 'overlayPane',
-            zIndex: 650,
-            tms: tileMatrixStr.toLowerCase().includes('tms')
-                ? true
-                : layerConfig.tileformat === 'tms' ||
-                  layerConfig.tms === true ||
-                  false,
+    if (typeof window.L?.tileLayer !== 'function') {
+        const message = 'MMGIS raster tile rendering is unavailable.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'HIGHLIGHT_RENDERER_UNAVAILABLE',
         }
-    )
-    store.highlightTile.addTo(map)
+    }
+    let leafletBounds = null
+    if (scope.bbox) {
+        leafletBounds = window.L.latLngBounds(
+            window.L.latLng(scope.bbox[1], scope.bbox[0]),
+            window.L.latLng(scope.bbox[3], scope.bbox[2])
+        )
+        if (scope.kind === 'named-area' || scope.kind === 'explicit-bounds') {
+            try {
+                if (window.mmgisAPI?.fitMapBounds) {
+                    await window.mmgisAPI.fitMapBounds(scope.bbox, {
+                        padding: [16, 16],
+                    })
+                } else if (typeof map.fitBounds === 'function') {
+                    map.fitBounds(leafletBounds, { padding: [16, 16] })
+                }
+            } catch (error) {
+                console.error('Threshold highlight area fit failed', error)
+                const message = `The requested highlight area (${scope.label}) could not be displayed on the map.`
+                appendLine(message)
+                return {
+                    ok: false,
+                    message,
+                    data: { bbox: scope.bbox },
+                    errorCode: 'HIGHLIGHT_AREA_DISPLAY_FAILED',
+                }
+            }
+        }
+    }
+    let highlightTileUrl
+    if (isStacCollection) {
+        // Follow the same pgSTAC collection route as MMGIS' normal layer
+        // renderer. Deployments may intentionally run TiTiler-pgSTAC without
+        // the separate /titiler/cog service, so resolving a collection to a
+        // COG and then switching services makes an otherwise valid layer fail.
+        const transformed = transformStacUrl(
+            stacCollectionSource,
+            {
+                ...layerConfig,
+                cogBands: null,
+                cogExpression: threshold.expression,
+            },
+            'tiles',
+            window.location
+        )
+        if (
+            !transformed ||
+            transformed.toLowerCase().startsWith('stac-collection:')
+        ) {
+            const message = `The STAC collection for "${layerName}" could not be converted to MMGIS' raster tile endpoint.`
+            appendLine(message)
+            return {
+                ok: false,
+                message,
+                data: null,
+                errorCode: 'HIGHLIGHT_SOURCE_UNAVAILABLE',
+            }
+        }
+        const queryIndex = transformed.indexOf('?')
+        let tilePath =
+            queryIndex >= 0 ? transformed.slice(0, queryIndex) : transformed
+        const stacParams = new URLSearchParams(
+            queryIndex >= 0 ? transformed.slice(queryIndex + 1) : ''
+        )
+        if (!/\.(?:png|webp|jpg|jpeg)$/i.test(tilePath)) tilePath += '.png'
+        stacParams.set('assets', 'asset')
+        stacParams.set('exitwhenfull', 'false')
+        stacParams.set('skipcovered', 'false')
+        stacParams.set('expression', threshold.expression)
+        stacParams.set('resampling', 'nearest')
+        stacParams.set('rescale', '0,1')
+        stacParams.set(
+            'colormap',
+            JSON.stringify({
+                0: [0, 0, 0, 0],
+                255: [255, 255, 0, 255],
+            })
+        )
+        const liveOptions = target.liveInstance?.options || {}
+        const endTime =
+            liveOptions.endtime ||
+            TimeControl.endTime ||
+            TimeControl.currentTime ||
+            null
+        const startTime = liveOptions.starttime || null
+        if (endTime) {
+            stacParams.set(
+                'datetime',
+                startTime ? `${startTime}/${endTime}` : String(endTime)
+            )
+        }
+        highlightTileUrl = `${tilePath}?${stacParams.toString()}`
+    } else {
+        highlightTileUrl = `${baseRoot}/titiler/cog/tiles/${tileMatrixStr}/{z}/{x}/{y}.png?${params.toString()}`
+    }
+    store.highlightTile = window.L.tileLayer(highlightTileUrl, {
+        opacity: 0.6,
+        interactive: false,
+        pane: 'overlayPane',
+        zIndex: 650,
+        ...(leafletBounds ? { bounds: leafletBounds } : {}),
+        tms: tileMatrixStr.toLowerCase().includes('tms')
+            ? true
+            : layerConfig.tileformat === 'tms' ||
+              layerConfig.tms === true ||
+              false,
+    })
+    const tileOutcomePromise = waitForFirstTileOutcome(store.highlightTile)
+    try {
+        store.highlightTile.addTo(map)
+    } catch (error) {
+        console.error('Threshold highlight tile attachment failed', error)
+        store.highlightTile.fire?.('tileerror')
+        const message = 'The threshold overlay could not be added to the map.'
+        appendLine(message)
+        store.highlightTile = null
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'HIGHLIGHT_RENDER_FAILED',
+        }
+    }
+    const tileOutcome = await tileOutcomePromise
+    if (!tileOutcome.ok) {
+        try {
+            store.highlightTile.remove()
+        } catch (_) {}
+        store.highlightTile = null
+        const fallbackBbox = scope.bbox || target.bbox
+        if (isValidBbox(fallbackBbox)) {
+            try {
+                const timeTokens = getLayerTimeTokens(
+                    { layer: target },
+                    payload
+                )
+                const local = await calculateLocalThresholdMask(
+                    { layer: target, displayName: layerName },
+                    {
+                        label: scope.label,
+                        bbox: fallbackBbox.map(Number),
+                    },
+                    {
+                        operator,
+                        value: threshold.value,
+                        valueMin: threshold.lower,
+                        valueMax: threshold.upper,
+                        band: Number(bandResolution.band.replace(/^b/i, '')),
+                        geometry: payload?.geometry,
+                        time: timeTokens.time,
+                        startTime: timeTokens.startTime,
+                        endTime: timeTokens.endTime,
+                    }
+                )
+                drawLocalThresholdOverlay(local.matches)
+                const sampleDescription = local.isSampled
+                    ? `${local.sampleCount.toLocaleString()} sampled raster cells representing an estimated ${local.populationCount.toLocaleString()} source cells`
+                    : `${local.sampleCount.toLocaleString()} raster cells in the bounded window`
+                const message = local.matchCount
+                    ? `The raster tile overlay service was unavailable, so Copilot displayed ${local.matches.length.toLocaleString()} representative map points from ${local.matchCount.toLocaleString()} matching valid cells. The threshold was evaluated locally over ${sampleDescription}; this point overlay is ${
+                          local.isSampled ? 'approximate' : 'bounded'
+                      }.`
+                    : `No valid cells in ${scope.label} satisfied the threshold. Copilot verified this locally over ${sampleDescription}; no highlight points were added.`
+                appendLine(message)
+                return {
+                    ok: true,
+                    message,
+                    data: {
+                        layer: layerName,
+                        variable,
+                        band: bandResolution.band,
+                        operator,
+                        threshold:
+                            operator === 'between'
+                                ? {
+                                      min: threshold.lower,
+                                      max: threshold.upper,
+                                  }
+                                : threshold.value,
+                        unit: declaredUnit,
+                        valueExpression: scalarTransform.expression,
+                        scope: 'bounded-local-sample',
+                        bbox: fallbackBbox.map(Number),
+                        renderer: 'local-sampled-points',
+                        matchCount: local.matchCount,
+                        displayedCount: local.matches.length,
+                        sampleCount: local.sampleCount,
+                        populationCount: local.populationCount,
+                        approximate: local.isSampled,
+                    },
+                }
+            } catch (localError) {
+                console.warn(
+                    '[AgentChat] Local threshold fallback failed.',
+                    localError
+                )
+            }
+        }
+        appendLine(tileOutcome.message)
+        return {
+            ok: false,
+            message: tileOutcome.message,
+            data: { layer: layerName, bbox: scope.bbox },
+            errorCode: tileOutcome.errorCode,
+        }
+    }
 
-    const nameText = `Highlight: ${variable} ${op} ${payload?.value}${
-        payload?.unit ? ' ' + payload.unit : ''
-    }`
-    appendLine(`${nameText} on ${layerName}`)
+    const condition =
+        operator === 'between'
+            ? `between ${payload?.value_min} and ${payload?.value_max}`
+            : `${operator} ${payload?.value}`
+    const displayUnit = payload?.unit || declaredUnit
+    const requestedUnit = displayUnit ? ` ${displayUnit}` : ''
+    const convertedCondition =
+        operator === 'between'
+            ? `${threshold.lower} to ${threshold.upper}`
+            : `${threshold.value}`
+    const conversionNote = convertedThreshold.converted
+        ? ` (${convertedCondition} ${declaredUnit} in raster units)`
+        : ''
+    const scopeNote = scope.bbox
+        ? ` The overlay is limited to raster tiles intersecting ${scope.label}; edge tiles may extend slightly beyond the exact boundary.`
+        : ' The tile expression evaluates the full raster source.'
+    const message = `Highlighted ${variable} ${condition}${requestedUnit}${conversionNote} on ${layerName} using ${bandResolution.band}.${scopeNote}`
+    appendLine(message)
+    return {
+        ok: true,
+        message,
+        data: {
+            layer: layerName,
+            variable,
+            band: bandResolution.band,
+            operator,
+            threshold:
+                operator === 'between'
+                    ? { min: threshold.lower, max: threshold.upper }
+                    : threshold.value,
+            unit: declaredUnit,
+            valueExpression: scalarTransform.expression,
+            scope: scope.bbox ? 'tile-bounds' : 'full-raster',
+            bbox: scope.bbox,
+            requestedArea: payload?.geographical_area || payload?.area || null,
+        },
+    }
+}
+
+export async function render_highlight_relative_to_mean(ctx, payload = {}) {
+    const index = buildLayerIndex()
+    let selected = null
+    const requested = payload.layer_name || payload.name
+    if (requested) {
+        const match = findLayerMatch(requested, index)
+        if (match?.layer) {
+            const compatibility = assessLayerAnalysisCompatibility(
+                match.layer,
+                analysisCompatibilityOptions()
+            )
+            selected = compatibility.supported
+                ? { ...compatibility, layer: match.layer }
+                : null
+            if (!selected) {
+                const message = `Cannot analyze **${
+                    match.displayName || requested
+                }**: ${compatibility.reason}`
+                appendLine(message)
+                return {
+                    ok: false,
+                    message,
+                    data: { compatibility },
+                    errorCode: 'UNSUPPORTED_ANALYSIS',
+                }
+            }
+        }
+    } else {
+        selected = selectFirstVisibleAnalyzableLayer(
+            index,
+            analysisCompatibilityOptions()
+        )
+    }
+    if (!selected) {
+        const message = requested
+            ? `Could not find an analyzable layer matching "${requested}".`
+            : 'No analyzable scalar data layer is currently visible.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: requested
+                ? 'LAYER_NOT_FOUND'
+                : 'NO_VISIBLE_ANALYZABLE_LAYER',
+        }
+    }
+    const layerName =
+        selected.layerName ||
+        selected.layer?.displayName ||
+        selected.layer?.name ||
+        requested
+    const statsResult = await render_layer_mean(ctx, {
+        ...payload,
+        layer_name: layerName,
+        geographical_area:
+            payload.geographical_area || payload.area || 'current view',
+    })
+    if (!statsResult.ok) return statsResult
+    const mean = Number(statsResult.data?.stats?.mean)
+    if (!Number.isFinite(mean)) {
+        const message = `Statistics for **${layerName}** did not contain a numeric mean.`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: statsResult.data,
+            errorCode: 'MEAN_UNAVAILABLE',
+        }
+    }
+    const thresholdAction = buildRelativeMeanThresholdAction(
+        layerName,
+        mean,
+        payload.direction || payload.relative || 'above',
+        payload
+    )
+    const operator = thresholdAction.operator
+    const highlightResult = await render_threshold_highlight(
+        ctx,
+        thresholdAction
+    )
+    if (!highlightResult.ok) return highlightResult
+    const message = `Highlighted values ${
+        operator === '>' ? 'above' : 'below'
+    } the mean (${mean.toFixed(4)}) for **${layerName}**.`
+    appendLine(message)
+    return {
+        ok: true,
+        message,
+        data: {
+            layer: layerName,
+            mean,
+            direction: operator === '>' ? 'above' : 'below',
+            statistics: statsResult.data,
+            highlight: highlightResult.data,
+        },
+    }
 }
 
 export async function highlight_toggle() {
     const store = getHighlightStore()
     const tile = store.highlightTile
-    if (!tile) {
-        appendLine('No highlight overlay to hide/show.')
-        return
+    const local = store['local-threshold']
+    if (!tile && !local) {
+        const message = 'No highlight overlay is available to hide or show.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'HIGHLIGHT_NOT_FOUND',
+        }
     }
-    const current = tile.options.opacity ?? 0.2
+    const current = tile
+        ? (tile.options.opacity ?? 0.2)
+        : (store.localHighlightOpacity ?? 0.65)
     const isHidden = current <= 0.001
-    const next = isHidden ? store.highlightOpacity ?? 0.2 : 0
-    tile.setOpacity(next)
+    const next = isHidden
+        ? tile
+            ? (store.highlightOpacity ?? 0.2)
+            : (store.localHighlightPreviousOpacity ?? 0.65)
+        : 0
+    if (tile) tile.setOpacity(next)
+    else {
+        local.eachLayer?.((layer) =>
+            layer.setStyle?.({ fillOpacity: next, opacity: next })
+        )
+        store.localHighlightOpacity = next
+    }
+    const message = isHidden
+        ? `Highlight overlay is visible at opacity ${next.toFixed(2)}.`
+        : 'Highlight overlay is now hidden.'
+    appendLine(message)
+    return {
+        ok: true,
+        message,
+        data: { visible: isHidden, opacity: next },
+    }
 }
 
 export async function highlight_clear() {
     const store = getHighlightStore()
     const tile = store.highlightTile
-    if (tile && typeof tile.remove === 'function') {
+    const local = store['local-threshold']
+    if (
+        (tile && typeof tile.remove === 'function') ||
+        (local && typeof local.remove === 'function')
+    ) {
         try {
-            tile.remove()
+            tile?.remove?.()
+            local?.remove?.()
             store.highlightTile = null
-            appendLine('Cleared highlight overlay.')
-        } catch (_) {}
+            store['local-threshold'] = null
+            const message = 'Cleared the highlight overlay.'
+            appendLine(message)
+            return { ok: true, message, data: { cleared: true } }
+        } catch (error) {
+            console.error('Unable to clear highlight overlay', error)
+            const message = 'The highlight overlay could not be cleared.'
+            appendLine(message)
+            return {
+                ok: false,
+                message,
+                data: null,
+                errorCode: 'HIGHLIGHT_CLEAR_FAILED',
+            }
+        }
     } else {
-        appendLine('No highlight overlay to clear.')
+        const message = 'No highlight overlay is available to clear.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'HIGHLIGHT_NOT_FOUND',
+        }
     }
 }
 
@@ -2341,18 +3386,38 @@ export async function highlight_opacity(_ctx, payload) {
     const delta = Number(payload?.delta)
     const store = getHighlightStore()
     const tile = store.highlightTile
-    if (!tile) {
-        appendLine('No highlight overlay to adjust.')
-        return
+    const local = store['local-threshold']
+    if (!tile && !local) {
+        const message = 'No highlight overlay is available to adjust.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'HIGHLIGHT_NOT_FOUND',
+        }
     }
-    const cur = Number(tile.options.opacity ?? 0.2)
+    const cur = Number(
+        tile
+            ? (tile.options.opacity ?? 0.2)
+            : (store.localHighlightOpacity ?? 0.65)
+    )
     const next = Math.max(
         0.05,
         Math.min(0.4, cur + (Number.isFinite(delta) ? delta : 0))
     )
     store.highlightOpacity = next
-    tile.setOpacity(next)
-    appendLine(`Highlight opacity set to ${next.toFixed(2)}.`)
+    if (tile) tile.setOpacity(next)
+    else {
+        local.eachLayer?.((layer) =>
+            layer.setStyle?.({ fillOpacity: next, opacity: next })
+        )
+        store.localHighlightPreviousOpacity = next
+        store.localHighlightOpacity = next
+    }
+    const message = `Highlight opacity set to ${next.toFixed(2)}.`
+    appendLine(message)
+    return { ok: true, message, data: { opacity: next } }
 }
 
 export async function render_anomaly_detection(_ctx, payload) {
@@ -2360,114 +3425,81 @@ export async function render_anomaly_detection(_ctx, payload) {
     if (!layerName || typeof layerName !== 'string') {
         throw new Error('anomaly_detection requires a layer_name string.')
     }
-    
-    // For now, provide a simulated anomaly detection result
-    // In production, this would connect to actual data analytics services
-    
-    const area = payload?.geographical_area || payload?.area || 'Arctic Ocean'
-    const timeStr = payload?.time_start ? ` for ${payload.time_start}` : ' for November 2024'
-    
-    // Simulated statistics (placeholder until real analytics backend is wired)
-    const simulatedStats = {
-        mean: 1.234,
-        std: 0.456,
-        min: -0.5,
-        max: 3.8,
-        median: 1.15,
-        q25: 0.95,
-        q75: 1.55,
-        valid_count: 1248576
+    const match = findLayerMatch(layerName, buildLayerIndex())
+    if (!match?.layer) {
+        const message = `Unable to find layer "${layerName}" for anomaly detection.`
+        appendLine(message)
+        return { ok: false, message, data: null, errorCode: 'LAYER_NOT_FOUND' }
     }
-    
-    // Calculate anomaly thresholds
-    const threshold = payload?.threshold || 2.5
-    const lowerBound = simulatedStats.mean - (threshold * simulatedStats.std)
-    const upperBound = simulatedStats.mean + (threshold * simulatedStats.std)
-    const iqr = simulatedStats.q75 - simulatedStats.q25
-    const lowerFence = simulatedStats.q25 - (1.5 * iqr)
-    const upperFence = simulatedStats.q75 + (1.5 * iqr)
-    
-    // Build result message
-    const lines = []
-    lines.push(`Anomaly Detection: ${layerName}${timeStr}`)
-    lines.push(`Area: ${area}`)
-    lines.push('')
-    lines.push('Data Statistics:')
-    lines.push(`  Mean: ${simulatedStats.mean.toFixed(3)}m ± ${simulatedStats.std.toFixed(3)}m`)
-    lines.push(`  Median: ${simulatedStats.median.toFixed(3)}m`)
-    lines.push(`  Range: [${simulatedStats.min.toFixed(3)}m, ${simulatedStats.max.toFixed(3)}m]`)
-    lines.push(`  Valid pixels: ${simulatedStats.valid_count.toLocaleString()}`)
-    lines.push('')
-    lines.push(`Z-Score Analysis (±${threshold}σ):`)
-    lines.push(`  Normal range: [${lowerBound.toFixed(3)}m, ${upperBound.toFixed(3)}m]`)
-    
-    // Check for anomalies
-    const anomalies = []
-    if (simulatedStats.min < lowerBound) {
-        anomalies.push(`  [WARNING] Extreme low: ${simulatedStats.min.toFixed(3)}m (${((simulatedStats.min - simulatedStats.mean) / simulatedStats.std).toFixed(1)}σ)`)
+    const compatibility = assessLayerAnalysisCompatibility(
+        match.layer,
+        analysisCompatibilityOptions()
+    )
+    if (!compatibility.supported) {
+        const message = `Cannot detect anomalies for **${
+            match.displayName || layerName
+        }**: ${compatibility.reason}`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: { compatibility },
+            errorCode: 'UNSUPPORTED_ANALYSIS',
+        }
     }
-    if (simulatedStats.max > upperBound) {
-        anomalies.push(`  [WARNING] Extreme high: ${simulatedStats.max.toFixed(3)}m (${((simulatedStats.max - simulatedStats.mean) / simulatedStats.std).toFixed(1)}σ)`)
+    if (String(payload?.method || '').toLowerCase() === 'spatial') {
+        const message =
+            'Spatial anomaly clustering is not available because no registered analytics source returns cell-level anomaly values. Use z-score, IQR, or auto analysis instead.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'UNSUPPORTED_SPATIAL_ANOMALY',
+        }
     }
-    
-    if (anomalies.length > 0) {
-        lines.push(...anomalies)
-    } else {
-        lines.push('  [OK] No z-score anomalies detected')
+    try {
+        const results = await detectAnomalies(match.displayName || layerName, {
+            area: payload?.geographical_area || payload?.area || 'current view',
+            timeRange:
+                payload?.time_start || payload?.time_end
+                    ? {
+                          start: payload.time_start || null,
+                          end: payload.time_end || null,
+                      }
+                    : null,
+            method: payload?.method || 'auto',
+            threshold: Number(payload?.threshold) || 2.5,
+            includeVisualization: payload?.visualize !== false,
+        })
+        const message = formatAnomalyResults(results)
+        appendLine(message)
+        return { ok: true, message, data: results }
+    } catch (error) {
+        const message = `Unable to detect anomalies for **${
+            match.displayName || layerName
+        }**: ${error?.message || error}`
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: error?.code || 'ANOMALY_ANALYSIS_FAILED',
+        }
     }
-    
-    lines.push('')
-    lines.push('IQR Analysis:')
-    lines.push(`  Q1: ${simulatedStats.q25.toFixed(3)}m`)
-    lines.push(`  Q3: ${simulatedStats.q75.toFixed(3)}m`)
-    lines.push(`  IQR: ${iqr.toFixed(3)}m`)
-    lines.push(`  Outlier bounds: [${lowerFence.toFixed(3)}m, ${upperFence.toFixed(3)}m]`)
-    
-    // Check for IQR outliers
-    const outliers = []
-    if (simulatedStats.min < lowerFence) {
-        outliers.push(`  [WARNING] Lower outlier: ${simulatedStats.min.toFixed(3)}m`)
-    }
-    if (simulatedStats.max > upperFence) {
-        outliers.push(`  [WARNING] Upper outlier: ${simulatedStats.max.toFixed(3)}m`)
-    }
-    
-    if (outliers.length > 0) {
-        lines.push(...outliers)
-    } else {
-        lines.push('  [OK] No IQR outliers detected')
-    }
-    
-    // Summary
-    lines.push('')
-    const totalAnomalies = anomalies.length + outliers.length
-    if (totalAnomalies > 0) {
-        lines.push(`[ALERT] Summary: ${totalAnomalies} potential anomaly(ies) detected`)
-        lines.push('These values represent statistically significant deviations from the mean.')
-        lines.push('Further investigation recommended for extreme values.')
-    } else {
-        lines.push('[PASS] Summary: No significant statistical anomalies detected')
-        lines.push('The data appears to follow a normal distribution.')
-    }
-    
-    // Add visualization note
-    if (payload?.visualize !== false) {
-        lines.push('')
-        lines.push('Note: In a full implementation, anomalous regions would be highlighted on the map.')
-    }
-    
-    appendLine(lines.join('\n'))
 }
 
 export async function render_multilayer_statistics(_ctx, payload) {
     const layerNames = payload?.layer_names || payload?.layers
     if (!Array.isArray(layerNames) || layerNames.length < 2) {
-        throw new Error('multi_layer_statistics requires at least 2 layer names.')
+        throw new Error(
+            'multi_layer_statistics requires at least 2 layer names.'
+        )
     }
 
     const area = payload?.area || payload?.geographical_area || 'current view'
     const timeRange = payload?.time_range
-    const includeCorrelation = payload?.include_correlation !== false
+    const includeCorrelation = payload?.include_correlation === true
 
     try {
         const results = await calculateMultiLayerStats(layerNames, {
@@ -2486,10 +3518,20 @@ export async function render_multilayer_statistics(_ctx, payload) {
                 fillOpacity: 0.15,
             })
         }
-
+        return { ok: true, message: formattedOutput, data: results }
     } catch (error) {
-        appendLine(`Multi-layer analysis failed: ${error?.message || error}`)
-        throw error
+        console.error('[AgentChat] Multi-layer statistics failed.', error)
+        const message =
+            error?.code === 'AREA_UNRESOLVED'
+                ? error.message
+                : 'Multi-layer statistics could not be completed for the selected layers and area.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: error?.code || 'MULTILAYER_STATISTICS_FAILED',
+        }
     }
 }
 
@@ -2528,10 +3570,20 @@ export async function render_temporal_trends(_ctx, payload) {
                 dashArray: '6 4',
             })
         }
-
+        return { ok: true, message: formattedOutput, data: results }
     } catch (error) {
-        appendLine(`Temporal trend analysis failed: ${error?.message || error}`)
-        throw error
+        console.error('[AgentChat] Temporal trend analysis failed.', error)
+        const message =
+            error?.code === 'AREA_UNRESOLVED'
+                ? error.message
+                : 'Temporal trend analysis could not be completed for the selected layer, area, and time range.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: error?.code || 'TEMPORAL_TREND_FAILED',
+        }
     }
 }
 
@@ -2544,6 +3596,16 @@ export async function render_spatial_statistics(_ctx, payload) {
     const area = payload?.area || payload?.geographical_area || 'current view'
     const gridSize = payload?.grid_size || 16
     const analysisType = payload?.analysis_type || 'moran'
+    const resolvedAnalysisType = resolveSpatialAnalysisType(analysisType)
+    if (!resolvedAnalysisType.ok) {
+        appendLine(resolvedAnalysisType.message)
+        return {
+            ok: false,
+            message: resolvedAnalysisType.message,
+            data: null,
+            errorCode: resolvedAnalysisType.errorCode,
+        }
+    }
 
     const layerMatch = findLayerMatch(layerName)
 
@@ -2551,7 +3613,7 @@ export async function render_spatial_statistics(_ctx, payload) {
         const results = await calculateSpatialStatistics(layerName, {
             area,
             gridSize,
-            analysisType,
+            analysisType: resolvedAnalysisType.analysisType,
             layerMatch,
         })
 
@@ -2565,14 +3627,30 @@ export async function render_spatial_statistics(_ctx, payload) {
                 drawAreaHighlight(resolvedArea, 'spatial-analysis', {
                     color: '#8b5cf6',
                     fillOpacity: 0.15,
-                    dashArray: '4 6'
+                    dashArray: '4 6',
                 })
             }
         }
 
+        return {
+            ok: true,
+            message: formattedOutput,
+            data: results,
+        }
     } catch (error) {
-        appendLine(`Spatial statistics analysis failed: ${error?.message || error}`)
-        throw error
+        console.error('[AgentChat] Spatial statistics failed.', error)
+        const message =
+            error?.code === 'UNSUPPORTED_SPATIAL_ANALYSIS_TYPE' ||
+            error?.code === 'AREA_UNRESOLVED'
+                ? error.message
+                : 'Spatial statistics could not be completed for the selected layer and area.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: error?.code || 'SPATIAL_ANALYSIS_FAILED',
+        }
     }
 }
 
@@ -2605,129 +3683,40 @@ export async function render_change_detection(_ctx, payload) {
         if (payload?.visualize !== false) {
             const resolvedArea = resolveArea(area)
             if (resolvedArea) {
-                const changeColor = results.changes.meanChange > 0 ? '#22c55e' : '#ef4444'
+                const changeColor =
+                    results.changes.meanChange > 0 ? '#22c55e' : '#ef4444'
                 drawAreaHighlight(resolvedArea, 'change-detection', {
                     color: changeColor,
-                    fillOpacity: 0.2
+                    fillOpacity: 0.2,
                 })
             }
         }
-
+        return { ok: true, message: formattedOutput, data: results }
     } catch (error) {
-        appendLine(`Change detection analysis failed: ${error?.message || error}`)
-        throw error
+        console.error('[AgentChat] Change detection failed.', error)
+        const message =
+            error?.code === 'AREA_UNRESOLVED' ||
+            error?.code === 'RASTER_ALIGNMENT_REQUIRED'
+                ? error.message
+                : 'Change detection could not be completed for the selected layer, times, and area.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: error?.code || 'CHANGE_DETECTION_FAILED',
+        }
     }
 }
 
 export async function render_time_series_animation(_ctx, payload) {
-    const layerName = payload?.layer_name || payload?.layer
-    if (!layerName || typeof layerName !== 'string') {
-        throw new Error('time_series_animation requires a layer_name string.')
-    }
-    
-    // Intelligent layer management: find and enable target layer, disable others
-    const index = buildLayerIndex()
-    const targetLayerMatch = findLayerMatch(layerName, index)
-    
-    // Layers to keep visible during animation (base/reference layers)
-    const KEEP_VISIBLE_LAYERS = [
-        'areas of interest',
-        'land mask',
-        'gibs modis true color',
-        'modis true color',
-        'polar countries',
-        'coastlines',
-        'boundaries'
-    ]
-    
-    function shouldKeepVisible(layerName) {
-        const normalizedName = layerName.toLowerCase()
-        return KEEP_VISIBLE_LAYERS.some(keepLayer => 
-            normalizedName.includes(keepLayer.toLowerCase()) ||
-            keepLayer.toLowerCase().includes(normalizedName)
-        )
-    }
-    
-    if (targetLayerMatch) {
-        const targetLayerName = targetLayerMatch.displayName || targetLayerMatch.name
-        
-        // Get list of currently visible layers
-        const currentlyVisible = index.filter(layer => layer.visible)
-        
-        // Turn off data layers but keep base/reference layers
-        const layersToDisable = []
-        
-        for (const visibleLayer of currentlyVisible) {
-            const visibleLayerName = visibleLayer.displayName || visibleLayer.name
-            
-            // Skip if it's the target layer or a layer we want to keep visible
-            if (visibleLayerName !== targetLayerName && !shouldKeepVisible(visibleLayerName)) {
-                try {
-                    window.mmgisAPI.toggleLayer(visibleLayer.id, false)
-                    layersToDisable.push(visibleLayerName)
-                } catch (e) {
-                    console.warn(`Failed to turn off layer ${visibleLayerName}:`, e)
-                }
-            }
-        }
-        
-        // Turn on the target layer if it's not already visible
-        if (!targetLayerMatch.visible) {
-            try {
-                window.mmgisAPI.toggleLayer(targetLayerMatch.id, true)
-                appendLine(`Enabled layer: ${targetLayerName}`)
-            } catch (e) {
-                console.warn(`Failed to turn on layer ${targetLayerName}:`, e)
-            }
-        }
-        
-        // Report which layers were disabled
-        if (layersToDisable.length > 0) {
-            appendLine(`Disabled data layers for animation: ${layersToDisable.join(', ')}`)
-        }
-        
-        // Report which base layers are kept visible
-        const keptVisible = currentlyVisible.filter(layer => {
-            const layerName = layer.displayName || layer.name
-            return layerName !== targetLayerName && shouldKeepVisible(layerName)
-        })
-        
-        if (keptVisible.length > 0) {
-            const keptNames = keptVisible.map(layer => layer.displayName || layer.name).join(', ')
-            appendLine(`Keeping base layers visible: ${keptNames}`)
-        }
-    }
-    
-    // Only pass options the LLM explicitly provided; let
-    // createTimeSeriesAnimation infer defaults from the layer config.
-    const animOpts = {
-        frameRate: payload?.frame_rate || 1000,
-        loopMode: payload?.loop_mode || 'loop',
-        area: payload?.area || payload?.geographical_area,
-    }
-    if (payload?.time_start || payload?.start_time)
-        animOpts.startTime = payload.time_start || payload.start_time
-    if (payload?.time_end || payload?.end_time)
-        animOpts.endTime = payload.time_end || payload.end_time
-    if (payload?.interval)
-        animOpts.interval = payload.interval
-
-    try {
-        const results = await createTimeSeriesAnimation(layerName, animOpts)
-        
-        const formattedOutput = formatAnimationResults(results)
-        appendLine(formattedOutput)
-        
-        // Auto-start animation if requested
-        if (payload?.auto_play) {
-            results.controls.play()
-            appendLine('[PLAYING] Animation started')
-        }
-        
-    } catch (error) {
-        appendLine(`Time series animation failed: ${error?.message || error}`)
-        throw error
-    }
+    return render_open_animation_tool(_ctx, {
+        layer_name: payload?.layer_name || payload?.layer,
+        start_date: payload?.time_start || payload?.start_time,
+        end_date: payload?.time_end || payload?.end_time,
+        region: payload?.area || payload?.geographical_area,
+        format: 'gif',
+    })
 }
 
 export async function render_data_export(_ctx, payload) {
@@ -2735,10 +3724,10 @@ export async function render_data_export(_ctx, payload) {
     if (!layerName || typeof layerName !== 'string') {
         throw new Error('data_export requires a layer_name string.')
     }
-    
+
     const format = payload?.format || 'csv'
     const area = payload?.area || payload?.geographical_area || 'current view'
-    
+
     try {
         const results = await exportLayerData(layerName, {
             format,
@@ -2746,86 +3735,44 @@ export async function render_data_export(_ctx, payload) {
             timeRange: payload?.time_range,
             includeMetadata: payload?.include_metadata !== false,
             compression: payload?.compression || false,
-            resolution: payload?.resolution || 'medium'
+            resolution: payload?.resolution || 'medium',
         })
-        
+
         const formattedOutput = formatExportResults(results)
         appendLine(formattedOutput)
-        
+
         // Auto-download if requested
         if (payload?.auto_download) {
             if (triggerDownload()) {
                 appendLine('[DOWNLOADED] File download initiated')
             }
         }
-        
     } catch (error) {
         appendLine(`Data export failed: ${error?.message || error}`)
         throw error
     }
 }
 
+// Pure builder — classifies analyzability from the live layer config
+// (STAC collection / COG / local-tile-server data vs. plain reference
+// imagery), never a hardcoded layer list. Kept separate from the renderer so
+// capability summaries can be generated without optional plug-in knowledge.
+export function buildAnalyzableLayersText() {
+    return formatAnalyzableLayerCatalog(
+        buildLayerIndex(),
+        analysisCompatibilityOptions()
+    )
+}
+
 export async function list_analyzable_layers(_ctx, payload) {
     try {
-        const index = buildLayerIndex()
-        const dataLayers = []
-        const referenceLayers = []
-
-        for (const item of index) {
-            const cfg = item.config || item.layer?.config || item.layer || {}
-            const name = item.displayName || item.name || ''
-            const url = (cfg.url || cfg.source || '').toLowerCase()
-            const srcType = (cfg.sourceType || '').toLowerCase()
-            const layerType = (cfg.type || '').toLowerCase()
-
-            // Skip header/group nodes
-            if (layerType === 'header') continue
-
-            // Determine if this is a data layer (analyzable) or reference layer
-            const isStac = srcType === 'stac-collection' || url.startsWith('stac-collection:')
-            const isCog = url.includes('.tif') || url.includes('cog:') || srcType === 'cog'
-            const hasLocalData = cfg.throughTileServer === true
-            const isTimeSeries = cfg.time?.enabled === true
-
-            if (isStac || isCog || hasLocalData) {
-                const details = []
-                if (isStac) details.push('STAC collection')
-                if (isCog) details.push('COG/GeoTIFF')
-                if (isTimeSeries) details.push('time-enabled')
-                if (cfg.cogUnits) details.push(`units: ${cfg.cogUnits}`)
-                if (cfg.cogMin != null && cfg.cogMax != null) {
-                    details.push(`range: ${cfg.cogMin}-${cfg.cogMax}`)
-                }
-                dataLayers.push({ name, details: details.join(', '), visible: item.visible })
-            } else {
-                referenceLayers.push({ name, visible: item.visible })
-            }
-        }
-
-        const lines = []
-
-        if (dataLayers.length > 0) {
-            lines.push(`**Data Layers (${dataLayers.length})** — support statistics, difference, and analysis:`)
-            dataLayers.forEach(l => {
-                const vis = l.visible ? 'visible' : 'hidden'
-                lines.push(`- **${l.name}** (${vis}) — ${l.details}`)
-            })
-        } else {
-            lines.push('No analyzable data layers found in the current configuration.')
-        }
-
-        if (referenceLayers.length > 0) {
-            lines.push('')
-            lines.push(`**Reference Layers (${referenceLayers.length})** — visualization only:`)
-            referenceLayers.forEach(l => {
-                lines.push(`- ${l.name}`)
-            })
-        }
-
-        const output = lines.join('\n')
+        const output = buildAnalyzableLayersText()
         appendLine(output)
-        return output
-
+        return {
+            ok: true,
+            message: output,
+            data: { kind: 'analysis-capability-list' },
+        }
     } catch (error) {
         const errorMsg = `Unable to list analyzable layers: ${error?.message || error}`
         appendLine(errorMsg)
@@ -2835,128 +3782,48 @@ export async function list_analyzable_layers(_ctx, payload) {
 
 export async function render_open_animation_tool(_ctx, payload) {
     const layerName = payload?.layer_name || payload?.layer
-    if (!layerName) throw new Error('open_animation_tool requires layer_name.')
-
-    // Enable the target layer
-    const index = buildLayerIndex()
-    const layerMatch = findLayerMatch(layerName, index)
-    if (layerMatch) {
-        try { window.mmgisAPI?.toggleLayer(layerMatch.id, true) } catch (_) {}
+    if (!layerName) {
+        const message = 'Choose a layer before opening the Animation tool.'
+        appendLine(message)
+        return {
+            ok: false,
+            message,
+            data: null,
+            errorCode: 'ANIMATION_LAYER_REQUIRED',
+        }
     }
 
-    // Set time range via TimeControl if dates provided
-    const startDate = payload?.start_date || payload?.time_start
-    const endDate = payload?.end_date || payload?.time_end
-    if (startDate) {
-        try { TimeControl.setTime?.(startDate, endDate || startDate) } catch (_) {}
+    const toolResult = openAgentTool(ToolController_, 'Animation')
+    if (!toolResult.ok) {
+        appendLine(toolResult.message)
+        return toolResult
     }
 
-    // Zoom to named region if provided
-    const regionKey = (payload?.region || '').toLowerCase().trim()
-    const preset = AREA_PRESETS[regionKey]
-    if (preset) {
-        try {
-            window.mmgisAPI?.map?.fitBounds([
-                [preset.bbox[1], preset.bbox[0]],
-                [preset.bbox[3], preset.bbox[2]],
-            ])
-        } catch (_) {}
-    }
-
-    // Open Animation tool via ToolController_
-    const controller = window.ToolController_
-    if (controller && Array.isArray(controller.toolModuleNames)) {
-        const idx = controller.toolModuleNames.indexOf('AnimationTool')
-        if (idx !== -1) controller.makeTool('AnimationTool', idx)
-    }
-
+    const layerMatch = findLayerMatch(layerName, buildLayerIndex())
     const displayName = layerMatch?.displayName || layerName
     const format = (payload?.format || 'GIF').toUpperCase()
-    const parts = [`Animation Tool opened for: ${displayName}`]
-    if (preset?.label || payload?.region) parts.push(`Region: ${preset?.label || payload.region}`)
-    if (startDate && endDate) parts.push(`Time range: ${startDate} → ${endDate}`)
-    parts.push(`Draw a bounding box on the map in the Animation panel, then click Export ${format}.`)
+    const parts = [
+        'Opened the Animation tool.',
+        `Select ${displayName} in the panel, choose the time range, draw export bounds, and then click Export ${format}.`,
+        'Copilot did not claim that those manual Animation inputs were applied.',
+    ]
     const msg = parts.join('\n')
     appendLine(msg)
-    return msg
-}
-
-export async function render_run_analysis(_ctx, payload) {
-    const layerName = payload?.layer_name || payload?.layer
-    if (!layerName) throw new Error('run_analysis requires layer_name.')
-
-    // Enable the target layer
-    const index = buildLayerIndex()
-    const layerMatch = findLayerMatch(layerName, index)
-    if (layerMatch) {
-        try { window.mmgisAPI?.toggleLayer(layerMatch.id, true) } catch (_) {}
+    return {
+        ok: true,
+        message: msg,
+        data: {
+            layer: displayName,
+            requestedRegion: payload?.region || null,
+            requestedStartDate:
+                payload?.start_date || payload?.time_start || null,
+            requestedEndDate: payload?.end_date || payload?.time_end || null,
+            format,
+            tool: toolResult,
+            configured: false,
+            requiresManualInput: true,
+        },
     }
-
-    // Open Analysis tool via ToolController_
-    const controller = window.ToolController_
-    let toolOpened = false
-    if (controller && Array.isArray(controller.toolModuleNames)) {
-        const idx = controller.toolModuleNames.indexOf('AnalysisTool')
-        if (idx !== -1) {
-            controller.makeTool('AnalysisTool', idx)
-            toolOpened = true
-        }
-    }
-
-    if (!toolOpened) {
-        const msg = 'Analysis Tool is not available. Please open it from the toolbar.'
-        appendLine(msg)
-        return msg
-    }
-
-    // Wait for tool DOM to initialize after make()
-    await new Promise((resolve) => setTimeout(resolve, 400))
-
-    const startDate = payload?.start_date || payload?.time_start
-    const endDate = payload?.end_date || payload?.time_end
-    const chartType = payload?.chart_type || 'timeseries'
-    const mode = payload?.mode || 'bbox'
-    const displayName = layerMatch?.displayName || layerName
-
-    // Pre-fill time inputs
-    if (startDate) $('#analysisStartTime').val(startDate)
-    if (endDate) $('#analysisEndTime').val(endDate)
-
-    // Set chart type and sampling mode
-    $('#analysisChartTypeSelect').val(chartType)
-    $('#analysisDataModeSelect').val(mode).trigger('change')
-
-    // Select matching layer in dropdown (case-insensitive partial match)
-    const $sel = $('#analysisLayerSelect')
-    const nameLower = displayName.toLowerCase()
-    $sel.find('option').each(function () {
-        const optText = $(this).text().toLowerCase()
-        const optVal = ($(this).val() || '').toLowerCase()
-        if (optText.includes(nameLower) || nameLower.includes(optVal)) {
-            $sel.val($(this).val())
-            return false // break
-        }
-    })
-    $sel.trigger('change')
-
-    // Trigger analysis if the generate button is enabled
-    const $btn = $('#analysisGenerateBtn')
-    if ($btn.length && !$btn.prop('disabled')) {
-        $btn.trigger('click')
-        const timeLabel = startDate && endDate ? ` (${startDate} → ${endDate})` : ''
-        const msg = `Running ${chartType} analysis for ${displayName}${timeLabel}. Results will appear in the Analysis panel.`
-        appendLine(msg)
-        return msg
-    }
-
-    // Fallback: tool is open but generate not yet available (user needs bbox or coords)
-    const msg = [
-        `Analysis Tool opened for: ${displayName} [${chartType}]`,
-        startDate && endDate ? `Time range: ${startDate} → ${endDate}` : null,
-        mode === 'bbox' ? 'Draw a bounding box on the map, then click Generate Analysis.' : 'Click a point on the map, then click Generate Analysis.',
-    ].filter(Boolean).join('\n')
-    appendLine(msg)
-    return msg
 }
 
 const RENDERERS = {
@@ -2967,9 +3834,13 @@ const RENDERERS = {
     zoom_view: zoom_view,
     layer_information: render_layer_information,
     layer_mean: render_layer_mean,
+    statistics_first_visible: render_statistics_first_visible,
+    first_visible_statistics: render_statistics_first_visible,
     layer_difference: render_layer_difference,
     layer_summary: render_layer_summary,
     threshold_highlight: render_threshold_highlight,
+    highlight_relative_to_mean: render_highlight_relative_to_mean,
+    above_average_highlight: render_highlight_relative_to_mean,
     highlight_toggle: highlight_toggle,
     highlight_clear: highlight_clear,
     highlight_opacity: highlight_opacity,
@@ -2978,11 +3849,8 @@ const RENDERERS = {
     temporal_trends: render_temporal_trends,
     spatial_statistics: render_spatial_statistics,
     change_detection: render_change_detection,
-    time_series_animation: render_time_series_animation,
     data_export: render_data_export,
     list_analyzable_layers: list_analyzable_layers,
-    open_animation_tool: render_open_animation_tool,
-    run_analysis: render_run_analysis,
 }
 
 export default RENDERERS
