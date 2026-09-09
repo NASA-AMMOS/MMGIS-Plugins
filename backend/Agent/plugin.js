@@ -1,21 +1,16 @@
 const fs = require("fs");
 const path = require("path");
-const Ajv = require("ajv");
+const { createAgentAjv } = require("./schemaValidation");
 const router = require("./routes/agent");
 const { getAgentAuthMiddleware } = require("./auth");
 const { createLayerInfoMiddleware } = require("./missionLayerInfo");
 
-if (!process.env.WITH_AGENT || process.env.WITH_AGENT.toLowerCase() !== "true") {
-  module.exports = {
-    onceInit: () => {},
-    alwaysRun: () => {},
-    getAgentAuthMiddleware,
-  };
+const agentEnabled = process.env.WITH_AGENT?.toLowerCase() === "true";
+if (!agentEnabled) {
   let logger;
   try { logger = require(path.join(process.cwd(), "API/logger")); } catch (_) {}
   if (logger) logger("info", "Agent plugin disabled (WITH_AGENT != true). Skipping route mount.", "AgentSetup");
   else console.info("[Agent] Plugin disabled (WITH_AGENT != true). Skipping route mount.");
-  return;
 }
 
 function normalizeLayerName(value) {
@@ -253,7 +248,7 @@ let setup = {
       const { loadFileRegistry } = require("./registryManager");
       const registry = loadFileRegistry();
 
-      const ajv = new Ajv({
+      const ajv = createAgentAjv({
         allErrors: true,
         strict: false,
         coerceTypes: true,
@@ -337,4 +332,8 @@ let setup = {
 
 setup.getAgentAuthMiddleware = getAgentAuthMiddleware;
 
-module.exports = setup;
+module.exports = agentEnabled ? setup : {
+  onceInit: () => {},
+  alwaysRun: () => {},
+  getAgentAuthMiddleware,
+};

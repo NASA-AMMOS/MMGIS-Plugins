@@ -30,6 +30,20 @@ npm run build
 
 ### Agent API
 
+AgentChat owns its optional-tool adapters in `tools/AgentChat/actionCatalog.js`.
+On every turn it checks the configured, loaded tools through `ToolController_`
+and offers only usable actions. It can configure the open Analysis panel and
+open Animation using their existing public methods. Analysis needs no Agent
+imports, registration hooks, or manifest changes. Layer opacity uses `L_`.
+
+The host dependency is the typed authentication API in
+[NASA-AMMOS/MMGIS#1045](https://github.com/NASA-AMMOS/MMGIS/pull/1045).
+There is no host action registry or Copilot extension to `window.mmgisAPI`.
+Model arguments are validated with Ajv in Agent. Installed plugins remain
+trusted application code; timeouts, cancellation, and result-size caps protect
+conversation behavior, not a plugin security boundary.
+
+
 **POST /api/agent?mission=MISSION** returns a nonblank reply plus zero or
 more validated actions. The client executes those actions and submits bounded
 structured results to **POST /api/agent/continue?mission=MISSION** using
@@ -44,8 +58,8 @@ JSON parameter schemas are sanitized and merged with the static registry for
 that request. These capabilities always execute in the MMGIS client; the Agent
 backend never accepts executable code.
 
-Agent routes always run MMGIS **ensureUserForApi**. The host guard preserves
-the explicit public **AUTH=none**/**AUTH=off** modes; protected modes validate
+Agent routes mount MMGIS **ensureUserForApi({ allowPublic: true })**, explicitly
+allowing public **AUTH=none**/**AUTH=off** deployments. Protected modes validate
 the current session or a strict bearer token and return typed HTTP 401 JSON
 instead of login HTML or legacy HTTP-200 failure envelopes. Authentication
 infrastructure outages return a typed HTTP 503 response.

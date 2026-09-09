@@ -1,10 +1,12 @@
 {
   "uuid": "c3d4e5f6-a7b8-9012-cdef-123456789012",
   "id": "experimental-agent-backend",
-  "version": "5.0.15-20260815",
+  "version": "5.0.16-20260909",
   "type": "backend",
   "tier": "experimental",
-  "engines": { "mmgis": ">=5.0.0" },
+  "engines": {
+    "mmgis": ">=5.0.0"
+  },
   "name": "Agent",
   "description": "AI Agent backend — LLM providers (Azure AI Foundry, Gemini), generic MMGIS tool registry, and REST routes exposed at /api/agent.",
   "descriptionFull": {
@@ -38,10 +40,14 @@
       "@azure/core-auth": "^1.7.2",
       "@azure/identity": "^4.4.0",
       "@terraformer/wkt": "^2.2.0",
-      "ajv": "^8.17.1"
+      "ajv": "^8.17.1",
+      "ajv-formats": "^3.0.1"
     },
     "python": {
-      "pip": ["numpy==2.1.0", "rasterio==1.5.1"]
+      "pip": [
+        "numpy==2.1.0",
+        "rasterio==1.5.1"
+      ]
     }
   },
   "author": "yunks128",

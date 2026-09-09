@@ -53,7 +53,7 @@ export function normalizeRuntimeAction(action, index = 0) {
         plugin: plugin || null,
         analytics: normalizeAnalyticsMetadata(action.analytics),
         parameters,
-        // The host action descriptor has one authoritative schema. Ignore any
+        // The Agent action descriptor has one authoritative schema. Ignore any
         // legacy duplicate so model registration and execution validation
         // cannot drift apart.
         modelParameters: parameters,
@@ -163,19 +163,10 @@ export function verifyMmgisFacadeResult({
     return { ok: true, data: null }
 }
 
-export async function listRegisteredCopilotActions(api) {
+export async function listAgentActions(api) {
     if (!api) return []
-    const providers = [
-        [api.listCopilotActions, api],
-        [api.getCopilotActions, api],
-        [api.copilot?.listActions, api.copilot],
-    ]
-    let raw = []
-    for (const [provider, owner] of providers) {
-        if (typeof provider !== 'function') continue
-        raw = await provider.call(owner, { availableOnly: true })
-        break
-    }
+    let raw = typeof api.list === 'function'
+        ? await api.list({ availableOnly: true }) : []
     if (raw && !Array.isArray(raw) && Array.isArray(raw.actions)) raw = raw.actions
     return (Array.isArray(raw) ? raw : [])
         .filter(
@@ -189,7 +180,7 @@ export async function listRegisteredCopilotActions(api) {
         .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
 }
 
-export async function executeRegisteredCopilotAction(
+export async function executeAgentAction(
     api,
     action,
     args = {},
@@ -197,12 +188,7 @@ export async function executeRegisteredCopilotAction(
 ) {
     const name = clean(action?.name || action?.action || action)
     const callId = action?.callId || action?.id || null
-    const executors = [
-        [api?.executeCopilotAction, api],
-        [api?.runCopilotAction, api],
-        [api?.copilot?.executeAction, api?.copilot],
-    ]
-    const match = executors.find(([executor]) => typeof executor === 'function')
+    const match = typeof api?.execute === 'function' ? [api.execute, api] : null
     if (!name || !match) {
         return createToolResult({
             tool: name || 'plugin_action',

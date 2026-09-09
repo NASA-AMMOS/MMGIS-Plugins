@@ -173,7 +173,7 @@ test.describe('@unit Agent registryManager', () => {
     expect(JSON.stringify(byName.threshold_highlight)).not.toMatch(/signific/i);
   });
 
-  test('defers animation actions until the host exposes a public tool-opening facade', () => {
+  test('keeps optional tool actions out of the static registry; Agent advertises available adapters', () => {
     const registry = loadFileRegistry();
     const byName = Object.fromEntries(
       registry.tools.map((tool) => [tool.name, tool]),

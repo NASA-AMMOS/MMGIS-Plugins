@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const Ajv = require("ajv");
+const { createAgentAjv } = require("./schemaValidation");
 const { Op } = require("sequelize");
 const AgentTool = require("./models/agentTool");
 
@@ -90,7 +90,7 @@ async function reloadRegistry(app) {
     tools: dbTools.map((t) => t.toJSON()),
   });
 
-  const ajv = new Ajv({
+  const ajv = createAgentAjv({
     allErrors: true,
     strict: false,
     coerceTypes: true,

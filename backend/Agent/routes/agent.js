@@ -1,5 +1,5 @@
 const express = require("express");
-const Ajv = require("ajv");
+const { createAgentAjv } = require("../schemaValidation");
 const fs = require("fs");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
@@ -1254,14 +1254,13 @@ function getLiveToolOptions(req, runtimeCapabilities = []) {
   const validators = {
     ...(req.app?.locals?.agentToolValidators || {}),
   };
-  const ajv =
-    req.app?.locals?.agentAjv ||
-    new Ajv({
-      allErrors: true,
-      strict: false,
-      coerceTypes: true,
-      useDefaults: true,
-    });
+  // Dynamic descriptors must not accumulate in the application-wide Ajv cache.
+  const ajv = createAgentAjv({
+    addUsedSchema: false,
+    allErrors: true,
+    coerceTypes: true,
+    useDefaults: true,
+  });
   for (const tool of registry.tools || []) {
     if (typeof validators[tool.name] === "function") continue;
     validators[tool.name] = ajv.compile(

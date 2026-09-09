@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import fs from "fs";
 import path from "path";
-import Ajv from "ajv";
+import { createAgentAjv } from "../schemaValidation";
 import {
   RUNTIME_CAPABILITY_TRANSPORT_VERSION,
   MAX_RUNTIME_CAPABILITIES,
@@ -70,7 +70,7 @@ test.describe("@unit runtime Copilot capabilities", () => {
       dataKinds: ["scalar-raster", "numeric-grid"],
       requiresScalar: true,
     });
-    const validate = new Ajv({ strict: false }).compile(tool.parameters);
+    const validate = createAgentAjv({ strict: false }).compile(tool.parameters);
     expect(validate({ region: "current view", threshold: 5 })).toBe(true);
     expect(validate({ threshold: 5 })).toBe(false);
   });
@@ -104,7 +104,7 @@ test.describe("@unit runtime Copilot capabilities", () => {
     expect(merged.uiProfiles).toEqual(staticRegistry.uiProfiles);
   });
 
-  test("preserves the versioned host/Agent transport fixture without schema drift", () => {
+  test("preserves the versioned Agent transport fixture without schema drift", () => {
     expect(contractFixture.version).toBe(RUNTIME_CAPABILITY_TRANSPORT_VERSION);
     expect(contractFixture.limits).toEqual({
       actions: MAX_RUNTIME_CAPABILITIES,
@@ -126,7 +126,7 @@ test.describe("@unit runtime Copilot capabilities", () => {
       contractFixture.acceptedDescriptor.analytics,
     );
 
-    const validate = new Ajv({ strict: false }).compile(tool.parameters);
+    const validate = createAgentAjv({ strict: false }).compile(tool.parameters);
     expect(
       validate({
         mode: "safe",
@@ -150,20 +150,18 @@ test.describe("@unit runtime Copilot capabilities", () => {
         { ...runtimeDescriptor, name: "bad tool name" },
       ]),
     ).toThrow(/portable public action id/i);
-    expect(() =>
-      sanitizeRuntimeCapabilities([
-        {
-          ...runtimeDescriptor,
-          parameters: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              value: { type: "string", pattern: "(a+)+$" },
-            },
-          },
-        },
-      ]),
-    ).toThrow(/unsupported transport keyword "pattern"/i);
+    const schema = {
+      type: "object",
+      definitions: { code: { type: "string", pattern: "^[A-Z]+$" } },
+      properties: { value: { $ref: "#/definitions/code" } },
+      anyOf: [{ required: ["value"] }],
+      additionalProperties: false,
+    };
+    const [action] = sanitizeRuntimeCapabilities([{ ...runtimeDescriptor, parameters: schema }]);
+    expect(action.parameters).toEqual(schema);
+    const validate = createAgentAjv({ strict: false }).compile(action.parameters);
+    expect(validate({ value: "ABC" })).toBe(true);
+    expect(validate({ value: "123" })).toBe(false);
     expect(() =>
       sanitizeRuntimeCapabilities([
         {
@@ -175,6 +173,21 @@ test.describe("@unit runtime Copilot capabilities", () => {
         },
       ]),
     ).toThrow(/predicate.*transport contract/i);
+  });
+
+  test("validates standard formats and rejects invalid JSON Schemas", () => {
+    const parameters = {
+      type: "object",
+      properties: { date: { type: "string", format: "date" } },
+      required: ["date"],
+    };
+    const [tool] = sanitizeRuntimeCapabilities([{ ...runtimeDescriptor, parameters }]);
+    const validate = createAgentAjv().compile(tool.parameters);
+    expect(validate({ date: "2026-09-09" })).toBe(true);
+    expect(validate({ date: "2026-99-99" })).toBe(false);
+    expect(() => sanitizeRuntimeCapabilities([{
+      ...runtimeDescriptor, parameters: { type: "object", properties: { value: { type: "bogus" } } },
+    }])).toThrow(/Invalid action JSON Schema/);
   });
 
   test("puts category, plugin, and parameter requirements in the model prompt entry", () => {
@@ -189,7 +202,7 @@ test.describe("@unit runtime Copilot capabilities", () => {
     expect(text).toContain('"minimum":-10');
   });
 
-  test("aligns host cardinality limits and rejects over-limit descriptors", () => {
+  test("enforces Agent I/O budgets and rejects over-limit descriptors", () => {
     const operations = Array.from(
       { length: MAX_ANALYTICS_VALUES },
       (_, index) => `operation-${index}`,

@@ -1,6 +1,8 @@
 "use strict";
 
 const AGENT_AUTH_OPTIONS = Object.freeze({
+  // This mount deliberately supports public MMGIS deployments.
+  allowPublic: true,
   code: "AgentAuthenticationRequired",
   message: "Sign in to use MMGIS Copilot.",
   unavailableCode: "AgentAuthenticationUnavailable",

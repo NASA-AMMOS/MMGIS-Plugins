@@ -6,6 +6,8 @@
 */
 
 import L_ from '@basics/Layers_/Layers_'
+import ToolController_ from '@basics/ToolController_/ToolController_'
+import { createAgentActionCatalog, setAgentLayerOpacity } from './actionCatalog'
 import TimeControl from '@basics/TimeControl_/TimeControl'
 import * as d3 from 'd3'
 import RENDERERS, { buildLayersLineText, buildAnalyzableLayersText } from './renderers'
@@ -49,8 +51,8 @@ import {
     buildAgentHistory,
 } from './agentProtocol'
 import {
-    listRegisteredCopilotActions,
-    executeRegisteredCopilotAction,
+    listAgentActions,
+    executeAgentAction,
     isSafeMmgisApiMethod,
     mergeToolRegistries,
     toRuntimeCapabilityDescriptor,
@@ -118,6 +120,7 @@ const AgentChatTool = {
 }
 
 function interfaceWithMMGIS() {
+    const actionCatalog = createAgentActionCatalog(ToolController_)
     this.separateFromMMGIS = function () {
         cleanup()
     }
@@ -1030,7 +1033,7 @@ function interfaceWithMMGIS() {
               ? 'ac-bubble-u'
               : 'ac-bubble-s'
         const content = isA
-            ? renderContent(entry.reply || entry.text || '')
+            ? renderContent(resolveAssistantReply(entry.reply, entry.text))
             : renderContent(entry.text || '')
         const cites = isA ? renderCitations(entry.citations) : ''
         const trace = isA ? renderTrace(entry) : ''
@@ -1466,8 +1469,8 @@ function interfaceWithMMGIS() {
         }
         if (!state.toolRegistry || refreshRuntime) {
             try {
-                state.runtimeActions = await listRegisteredCopilotActions(
-                    window.mmgisAPI
+                state.runtimeActions = await listAgentActions(
+                    actionCatalog
                 )
             } catch (error) {
                 console.error(
@@ -1572,8 +1575,8 @@ function interfaceWithMMGIS() {
             } else if (x.adapter === 'pluginAction') {
                 const actionContext = (await buildAgentContext()) || {}
                 lifecycle.assertRequestActive(requestId)
-                const result = await executeRegisteredCopilotAction(
-                    window.mmgisAPI,
+                const result = await executeAgentAction(
+                    actionCatalog,
                     {
                         name: x.action || a.tool,
                         callId: a.callId,
@@ -1794,7 +1797,9 @@ function interfaceWithMMGIS() {
                 }
         }
 
-        const fn = window.mmgisAPI?.[method]
+        const fn = method === 'setLayerOpacity'
+            ? (layer, opacity) => setAgentLayerOpacity(L_, layer, opacity)
+            : window.mmgisAPI?.[method]
         let apiResult = null
         let verifiedResult = { ok: true, data: null }
         if (typeof fn === 'function') {

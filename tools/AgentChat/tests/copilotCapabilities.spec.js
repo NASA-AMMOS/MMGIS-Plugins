@@ -32,9 +32,9 @@ import {
 } from '../thresholdWorkflow'
 import { resolveLayerArguments } from '../layerArgumentResolver'
 import {
-    executeRegisteredCopilotAction,
+    executeAgentAction,
     isSafeMmgisApiMethod,
-    listRegisteredCopilotActions,
+    listAgentActions,
     mergeToolRegistries,
     normalizeRuntimeAction,
     toRuntimeCapabilityDescriptor,
@@ -606,9 +606,9 @@ test.describe('@unit AgentChat analysis compatibility/workflows', () => {
 })
 
 test.describe('@unit AgentChat runtime plugin actions', () => {
-    test('degrades safely when the optional host action facade is absent', async () => {
-        expect(await listRegisteredCopilotActions(undefined)).toEqual([])
-        const result = await executeRegisteredCopilotAction(
+    test('degrades safely when the Agent action catalog is absent', async () => {
+        expect(await listAgentActions(undefined)).toEqual([])
+        const result = await executeAgentAction(
             undefined,
             { name: 'optional-plugin__summarize', callId: 'call-optional' },
             { layer_name: 'Sea-ice concentration' },
@@ -690,7 +690,7 @@ test.describe('@unit AgentChat runtime plugin actions', () => {
         })
         const advertised = toRuntimeCapabilityDescriptor(normalized)
         // The backend prefers `name`, so it must be the same namespaced key
-        // that the client registry and executeCopilotAction use.
+        // that the client registry and execute use.
         expect(advertised).toMatchObject({
             name: 'mmgis-core__reset_map_view',
             id: 'mmgis-core__reset_map_view',
@@ -706,7 +706,7 @@ test.describe('@unit AgentChat runtime plugin actions', () => {
         const calls = []
         let turn = 0
         const api = {
-            listCopilotActions(options) {
+            list(options) {
                 calls.push(options)
                 turn += 1
                 return turn === 1
@@ -718,10 +718,10 @@ test.describe('@unit AgentChat runtime plugin actions', () => {
             },
         }
         expect(
-            (await listRegisteredCopilotActions(api)).map((a) => a.name)
+            (await listAgentActions(api)).map((a) => a.name)
         ).toEqual(['core__map'])
         expect(
-            (await listRegisteredCopilotActions(api)).map((a) => a.name)
+            (await listAgentActions(api)).map((a) => a.name)
         ).toEqual(['plugin__new_action'])
         expect(calls).toEqual([
             { availableOnly: true },
@@ -745,9 +745,9 @@ test.describe('@unit AgentChat runtime plugin actions', () => {
 
     test('executes the registered id and returns a structured result', async () => {
         const calls = []
-        const result = await executeRegisteredCopilotAction(
+        const result = await executeAgentAction(
             {
-                executeCopilotAction(id, args, context) {
+                execute(id, args, context) {
                     calls.push({ id, args, context })
                     return { ok: true, message: 'Forecast overlay enabled.' }
                 },
@@ -773,9 +773,9 @@ test.describe('@unit AgentChat runtime plugin actions', () => {
         const originalError = console.error
         console.error = () => {}
         try {
-            const result = await executeRegisteredCopilotAction(
+            const result = await executeAgentAction(
                 {
-                    executeCopilotAction() {
+                    execute() {
                         throw new Error(
                             'secret failure at C:\\Users\\operator\\plugin.js token=abc'
                         )

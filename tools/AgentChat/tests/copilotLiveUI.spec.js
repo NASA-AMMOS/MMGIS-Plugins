@@ -3969,8 +3969,6 @@ test.describe("@e2e opt-in live MMGIS AgentChat UI", () => {
       continuations: [],
       initialRequests: [],
       records: [],
-      runtimeActionId: null,
-      runtimeActionQuery: null,
     };
     await page.route("**/api/agent**", async (route) => {
       const request = route.request();
@@ -4000,21 +3998,7 @@ test.describe("@e2e opt-in live MMGIS AgentChat UI", () => {
       if (url.pathname.endsWith("/api/agent")) {
         const body = request.postDataJSON();
         live.initialRequests.push(body);
-        const advertisedRuntimeAction =
-          body.message === live.runtimeActionQuery
-            ? (body.context?.runtimeCapabilities || []).find(
-                (capability) =>
-                  capability.id === live.runtimeActionId &&
-                  capability.name === live.runtimeActionId,
-              )
-            : null;
-        const fixture = advertisedRuntimeAction
-          ? actionFixture(
-              advertisedRuntimeAction.name,
-              { label: "Beaufort Sea", emphasis: "high" },
-              "live-runtime-plugin-action",
-            )
-          : fixtureForMessage(body.message, live);
+        const fixture = fixtureForMessage(body.message, live);
         const { kind, ...response } = fixture;
         live.plans.push({
           message: body.message,
@@ -4342,146 +4326,7 @@ test.describe("@e2e opt-in live MMGIS AgentChat UI", () => {
     }
   });
 
-  test("discovers, plans, executes, continues, and unregisters a live runtime plugin action", async ({
-    page,
-  }) => {
-    const plugin = "test/e2e/runtime-action";
-    const query = "Use the runtime plug-in to label the Beaufort Sea";
-    const actionId = await page.evaluate(
-      ({ pluginId }) => {
-        window.__copilotRuntimeActionCalls = [];
-        return window.mmgisAPI.registerCopilotAction(
-          {
-            name: "annotate_region",
-            plugin: pluginId,
-            category: "application/ui-actions",
-            description:
-              "Add a named region annotation using the live E2E plug-in.",
-            parameters: {
-              type: "object",
-              properties: {
-                label: { type: "string" },
-                emphasis: {
-                  type: "string",
-                  enum: ["normal", "high"],
-                },
-              },
-              required: ["label"],
-              additionalProperties: false,
-            },
-          },
-          async (args, context) => {
-            window.__copilotRuntimeActionCalls.push({
-              args,
-              mission: context?.mission || null,
-            });
-            return {
-              ok: true,
-              message: `Runtime plug-in labeled ${args.label} with ${args.emphasis} emphasis.`,
-              data: {
-                label: args.label,
-                emphasis: args.emphasis,
-              },
-            };
-          },
-        );
-      },
-      { pluginId: plugin },
-    );
-    live.runtimeActionId = actionId;
-    live.runtimeActionQuery = query;
 
-    try {
-      const listed = await page.evaluate(async (id) => {
-        const actions = await window.mmgisAPI.listCopilotActions({
-          availableOnly: true,
-        });
-        return actions.find((action) => action.id === id) || null;
-      }, actionId);
-      expect(listed).toMatchObject({
-        id: actionId,
-        name: "annotate_region",
-        plugin,
-        available: true,
-      });
-
-      const continuationStart = live.continuations.length;
-      const reply = await submitAndRead(page, query);
-      const request = live.initialRequests.find(
-        (entry) => entry.message === query,
-      );
-      const advertised = request?.context?.runtimeCapabilities?.find(
-        (capability) => capability.id === actionId,
-      );
-      expect(advertised).toMatchObject({
-        id: actionId,
-        name: actionId,
-        displayName: "annotate_region",
-        plugin,
-        category: "application/ui-actions",
-      });
-      expect(advertised.parameters).toMatchObject({
-        required: ["label"],
-        additionalProperties: false,
-      });
-
-      const plan = live.plans.find((entry) => entry.message === query);
-      expect(plan).toMatchObject({
-        kind: "action",
-        tools: [actionId],
-      });
-      expect(plan.actions[0]).toMatchObject({
-        tool: actionId,
-        args: { label: "Beaufort Sea", emphasis: "high" },
-      });
-
-      const continuation = live.continuations
-        .slice(continuationStart)
-        .find((body) =>
-          body.toolResults?.some((result) => result.tool === actionId),
-        );
-      expect(continuation).toBeTruthy();
-      expect(continuation.toolResults).toContainEqual(
-        expect.objectContaining({
-          tool: actionId,
-          callId: "live-runtime-plugin-action",
-          ok: true,
-          message: "Runtime plug-in labeled Beaufort Sea with high emphasis.",
-          data: {
-            label: "Beaufort Sea",
-            emphasis: "high",
-          },
-        }),
-      );
-      const calls = await page.evaluate(
-        () => window.__copilotRuntimeActionCalls,
-      );
-      expect(calls).toHaveLength(1);
-      expect(calls[0]).toMatchObject({
-        args: { label: "Beaufort Sea", emphasis: "high" },
-      });
-      expect(calls[0].mission.toLowerCase()).toBe(LIVE_MISSION.toLowerCase());
-      expect(reply).toBe(
-        "Runtime plug-in labeled Beaufort Sea with high emphasis.",
-      );
-    } finally {
-      const cleanup = await page.evaluate(
-        async ({ id, pluginId }) => {
-          const removed = window.mmgisAPI.unregisterCopilotAction(id, pluginId);
-          const remaining = await window.mmgisAPI.listCopilotActions();
-          return {
-            removed,
-            stillRegistered: remaining.some((action) => action.id === id),
-          };
-        },
-        { id: actionId, pluginId: plugin },
-      );
-      expect(cleanup).toEqual({
-        removed: true,
-        stillRegistered: false,
-      });
-    }
-  });
 });
 
 test.describe("@e2e opt-in real-provider MMGIS AgentChat UI", () => {

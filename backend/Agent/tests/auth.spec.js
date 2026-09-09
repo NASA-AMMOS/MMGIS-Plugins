@@ -7,6 +7,7 @@ import {
 test.describe("@unit Copilot authentication integration", () => {
   test("configures the host API guard with typed Agent failures", () => {
     expect(AGENT_AUTH_OPTIONS).toEqual({
+      allowPublic: true,
       code: "AgentAuthenticationRequired",
       message: "Sign in to use MMGIS Copilot.",
       unavailableCode: "AgentAuthenticationUnavailable",

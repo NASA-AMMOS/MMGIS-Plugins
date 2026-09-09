@@ -1,3 +1,5 @@
+import ToolController_ from '@basics/ToolController_/ToolController_'
+import { openAgentTool } from './actionCatalog'
 import $ from 'jquery'
 import L_ from '@basics/Layers_/Layers_'
 import TimeControl from '@basics/TimeControl_/TimeControl'
@@ -3791,33 +3793,10 @@ export async function render_open_animation_tool(_ctx, payload) {
         }
     }
 
-    if (typeof window.mmgisAPI?.openTool !== 'function') {
-        const message =
-            'The Animation tool is not available in the current mission.'
-        appendLine(message)
-        return {
-            ok: false,
-            message,
-            data: null,
-            errorCode: 'ANIMATION_TOOL_UNAVAILABLE',
-        }
-    }
-    let toolResult = null
-    try {
-        toolResult = await window.mmgisAPI.openTool('Animation')
-    } catch (error) {
-        console.error('[AgentChat] Animation tool could not be opened.', error)
-    }
-    if (toolResult?.open !== true) {
-        const message =
-            'The Animation tool is not available in the current mission.'
-        appendLine(message)
-        return {
-            ok: false,
-            message,
-            data: null,
-            errorCode: 'ANIMATION_TOOL_UNAVAILABLE',
-        }
+    const toolResult = openAgentTool(ToolController_, 'Animation')
+    if (!toolResult.ok) {
+        appendLine(toolResult.message)
+        return toolResult
     }
 
     const layerMatch = findLayerMatch(layerName, buildLayerIndex())
