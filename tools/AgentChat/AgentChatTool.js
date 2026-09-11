@@ -159,14 +159,28 @@ const AgentChatTool = {
         // separated tools (including "custom") when this is true.
         const vars = L_.getToolVars('agentchat')
         this.displayOnStart = vars != null && vars.displayOnStart === true
-        hideToolbarButtons()
-        ensureTopbarLauncher()
+
+        if (L_.UserInterface_.isMobile === true) {
+            const mapRect = document
+                .getElementById('map')
+                .getBoundingClientRect()
+            this.width = 'full'
+            // Bottom-sheet detents (fractions of map height), small to large.
+            // Middle detent is the default open height.
+            this.heightDetents = [0.5, 0.8, 0.9]
+            this.height = Math.round(mapRect.height * this.heightDetents[1])
+        } else {
+            hideToolbarButtons()
+            ensureTopbarLauncher()
+        }
     },
     make() {
         this.MMGISInterface = new interfaceWithMMGIS()
         this.made = true
-        hideToolbarButtons()
-        ensureTopbarLauncher()
+        if (L_.UserInterface_.isMobile !== true) {
+            hideToolbarButtons()
+            ensureTopbarLauncher()
+        }
     },
     destroy() {
         if (this.MMGISInterface) this.MMGISInterface.separateFromMMGIS()
@@ -183,21 +197,25 @@ const AgentChatTool = {
 }
 
 function interfaceWithMMGIS() {
+    const isMobile = L_.UserInterface_.isMobile === true
+
     this.separateFromMMGIS = function () {
         cleanup()
     }
 
     // Keep #tools minimized so we don’t fight its panel.
-    try {
-        d3.select('#tools').selectAll('*').remove()
-        if (window.ToolController_) {
-            window.ToolController_.setToolHeight(0)
-            window.ToolController_.setToolWidth('full')
-            const ui = window.ToolController_.UserInterface
-            if (ui && typeof ui.closeToolPanel === 'function')
-                ui.closeToolPanel()
-        }
-    } catch (_) {}
+    if (!isMobile) {
+        try {
+            d3.select('#tools').selectAll('*').remove()
+            if (window.ToolController_) {
+                window.ToolController_.setToolHeight(0)
+                window.ToolController_.setToolWidth('full')
+                const ui = window.ToolController_.UserInterface
+                if (ui && typeof ui.closeToolPanel === 'function')
+                    ui.closeToolPanel()
+            }
+        } catch (_) {}
+    }
 
     const state = {
         toolRegistry: null,
@@ -571,31 +589,51 @@ function interfaceWithMMGIS() {
     function initUI() {
         removeExistingOverlay()
 
-        // Overlay doesn’t intercept input outside the panel.
-        const overlay = document.createElement('div')
-        overlay.id = OVERLAY_ID
-        overlay.style.position = 'fixed'
-        overlay.style.zIndex = '2000'
-        overlay.style.pointerEvents = 'none'
-        const startW = 450
-        const startH = 580
-        const topPad = 48
-        const rightPad = 40
-        overlay.style.left = `${Math.max(
-            8,
-            window.innerWidth - startW - rightPad
-        )}px`
-        overlay.style.top = `${Math.max(8, topPad)}px`
-        overlay.style.width = `${startW}px`
-        overlay.style.height = `${startH}px`
-        overlay.setAttribute('data-agentchat-root', 'true')
+        let panel
+        let overlay = null
+        if (isMobile) {
+            const host = document.getElementById('tools')
+            if (!host) return
+            host.innerHTML = renderOverlayInner()
+            panel = host.querySelector(`#${PANEL_ID}`)
+            if (panel) {
+                panel.style.width = '100%'
+                panel.style.height = '100%'
+                panel
+                    .querySelectorAll('[data-agentchat-resize]')
+                    .forEach((el) => el.remove())
+            }
+        } else {
+            // Overlay doesn’t intercept input outside the panel.
+            overlay = document.createElement('div')
+            overlay.id = OVERLAY_ID
+            overlay.style.position = 'fixed'
+            overlay.style.zIndex = '2000'
+            overlay.style.pointerEvents = 'none'
+            const topPad = 48
+            const rightPad = 40
+            // Constrain the initial panel to the viewport so it doesn't overflow
+            // on small desktop windows
+            const startW = Math.min(450, window.innerWidth - rightPad - 8)
+            const startH = Math.min(580, window.innerHeight - topPad - 8)
+            overlay.style.left = `${Math.max(
+                8,
+                window.innerWidth - startW - rightPad
+            )}px`
+            overlay.style.top = `${Math.max(8, topPad)}px`
+            overlay.style.width = `${startW}px`
+            overlay.style.height = `${startH}px`
+            overlay.setAttribute('data-agentchat-root', 'true')
 
-        state.lastFocusedEl = document.activeElement || null
+            state.lastFocusedEl = document.activeElement || null
 
-        overlay.innerHTML = renderOverlayInner()
-        document.body.appendChild(overlay)
+            overlay.innerHTML = renderOverlayInner()
+            document.body.appendChild(overlay)
+            panel = document.getElementById(PANEL_ID)
+        }
 
-        const panel = document.getElementById(PANEL_ID)
+        if (!panel) return
+
         state.transcriptEl = panel.querySelector('#agentChatTranscript')
         state.suggestionsEl = panel.querySelector('#agentChatSuggestions')
         state.inputEl = panel.querySelector('#agentChatInput')
@@ -611,7 +649,7 @@ function interfaceWithMMGIS() {
 
         renderMessages()
         scrollTranscript()
-        initDragAndResize(overlay, panel)
+        if (!isMobile) initDragAndResize(overlay, panel)
         attachGlobalKeys()
 
         setTimeout(() => state.inputEl?.focus(), 0)
@@ -685,9 +723,11 @@ function interfaceWithMMGIS() {
         panel
             .querySelector('#agentChatDemoPlay')
             ?.addEventListener('click', onDemoPlayClick)
-        panel
-            .querySelector('#agentChatClose')
-            ?.addEventListener('click', () => {
+        const closeBtn = panel.querySelector('#agentChatClose')
+        if (isMobile) {
+            if (closeBtn) closeBtn.style.display = 'none'
+        } else {
+            closeBtn?.addEventListener('click', () => {
                 const toRestore = state.lastFocusedEl
                 // Route through ToolController_ so MMGIS updates the tool's
                 // on/off state (activeSeparatedTools, UI store, toggle event);
@@ -704,11 +744,17 @@ function interfaceWithMMGIS() {
                         toRestore.focus()
                 }, 0)
             })
-        panel.querySelector('#agentChatMin')?.addEventListener('click', () => {
-            state.minimized = !state.minimized
-            applyMinimized(panel)
-            if (!state.minimized) scrollTranscript()
-        })
+        }
+        const minBtn = panel.querySelector('#agentChatMin')
+        if (isMobile) {
+            if (minBtn) minBtn.style.display = 'none'
+        } else {
+            minBtn?.addEventListener('click', () => {
+                state.minimized = !state.minimized
+                applyMinimized(panel)
+                if (!state.minimized) scrollTranscript()
+            })
+        }
         syncHeaderActionStates()
     }
 
@@ -821,7 +867,12 @@ function interfaceWithMMGIS() {
     function attachGlobalKeys() {
         if (state.keyHandlersAttached) return
         const onKey = (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'm') {
+            if (
+                !isMobile &&
+                (e.ctrlKey || e.metaKey) &&
+                e.key.toLowerCase() === 'm'
+            ) {
+                // Minimize only applies to the desktop floating overlay
                 const panel = document.getElementById(PANEL_ID)
                 if (panel) {
                     state.minimized = !state.minimized
@@ -830,8 +881,17 @@ function interfaceWithMMGIS() {
             }
             if (e.key === 'Escape') {
                 const toRestore = state.lastFocusedEl
-                // Properly destroy the tool to update made status and button state
-                AgentChatTool.destroy()
+                const controller = window.ToolController_
+                if (
+                    isMobile &&
+                    controller &&
+                    typeof controller.closeActiveTool === 'function'
+                ) {
+                    controller.closeActiveTool()
+                } else {
+                    // Properly destroy the tool to update made status and button state
+                    AgentChatTool.destroy()
+                }
                 setTimeout(() => {
                     if (toRestore && typeof toRestore.focus === 'function')
                         toRestore.focus()
@@ -2464,6 +2524,10 @@ function interfaceWithMMGIS() {
                 state.layerVisibilityListener = null
             }
             document.getElementById(OVERLAY_ID)?.remove()
+            if (isMobile) {
+                const host = document.getElementById('tools')
+                if (host) host.innerHTML = ''
+            }
             delete window.__mmgisAgentChatAppend
             if (window.__agentChatKeyHandler) {
                 window.removeEventListener(
