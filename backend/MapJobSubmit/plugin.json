@@ -1,0 +1,21 @@
+{
+  "uuid": "7c8d9e0f-1g2h-3i4j-5k6l-7m8n9o0p1q2r",
+  "id": "core-mapjobsubmit",
+  "name": "MapJobSubmit",
+  "display_name": "MapJobSubmit Backend",
+  "aliases": [
+    "mapjobsubmit",
+    "workflows"
+  ],
+  "version": "core",
+  "type": "backend",
+  "tier": "core",
+  "overridable": true,
+  "routes": {
+    "prefix": "/api/mapjobsubmit",
+    "auth": "optional"
+  },
+  "author": "NASA-AMMOS/MMGIS",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/NASA-AMMOS/MMGIS"
+}
