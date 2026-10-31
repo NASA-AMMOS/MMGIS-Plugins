@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "mmgis-token",
+      "description": "MMGIS long-term token (Configure → API Tokens)",
+      "password": true
+    }
+  ],
+  "servers": {
+    "mmgis-copilot": {
+      "type": "http",
+      "url": "http://localhost:8888/api/copilot-mcp/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:mmgis-token}"
+      }
+    }
+  }
+}

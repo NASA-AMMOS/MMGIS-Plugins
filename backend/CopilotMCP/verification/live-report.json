@@ -1,0 +1,989 @@
+{
+  "started_at": "2026-10-31T09:18:09.024Z",
+  "app": "http://localhost:8889",
+  "api": "http://localhost:8888",
+  "mission": "frozon",
+  "mission2": "Reference-Mission",
+  "cases": [
+    {
+      "capability": "MCP discovery",
+      "tool": "tools/list",
+      "status": "verified",
+      "evidence": "36 tools; all 23 Copilot registry tools present"
+    },
+    {
+      "capability": "Browser-session routing",
+      "tool": "mmgis_list_sessions",
+      "status": "verified",
+      "evidence": "4 sessions listed; ambiguous call rejected without executing"
+    },
+    {
+      "capability": "Copilot tool registry",
+      "tool": "copilot_tool_registry",
+      "status": "verified",
+      "evidence": "equals GET /api/agent/tools"
+    },
+    {
+      "capability": "Example queries",
+      "tool": "copilot_demo_queries",
+      "status": "verified",
+      "evidence": "equals GET /api/agent/copilot/demo-queries"
+    },
+    {
+      "capability": "Analytics layer catalog",
+      "tool": "copilot_analytics_layers",
+      "status": "verified",
+      "evidence": "equals GET /api/agent/analytics/layers"
+    },
+    {
+      "capability": "Raster statistics (server)",
+      "tool": "copilot_raster_statistics",
+      "status": "verified",
+      "evidence": "equals GET /api/agent/analytics/statistics"
+    },
+    {
+      "capability": "Raster statistics in a bbox (server)",
+      "tool": "copilot_raster_statistics",
+      "status": "verified",
+      "evidence": "equals GET /api/agent/analytics/statistics"
+    },
+    {
+      "capability": "Raster difference (server)",
+      "tool": "copilot_raster_difference",
+      "status": "verified",
+      "evidence": "equals GET /api/agent/analytics/difference"
+    },
+    {
+      "capability": "COG resolution",
+      "tool": "copilot_resolve_cog",
+      "status": "verified",
+      "evidence": "equals GET /api/agent/analytics/resolve-cog"
+    },
+    {
+      "capability": "Conversations",
+      "tool": "copilot_conversations",
+      "status": "verified",
+      "evidence": "equals GET /api/agent/conversations"
+    },
+    {
+      "capability": "Layer reference info",
+      "tool": "copilot_layer_info",
+      "status": "verified-upstream-unavailable",
+      "evidence": "MCP UPSTREAM_ERROR mirrors Copilot endpoint HTTP 404 (LayerInfoUnavailable)"
+    },
+    {
+      "capability": "Region resolver",
+      "tool": "copilot_resolve_region",
+      "status": "verified-upstream-unavailable",
+      "evidence": "MCP UPSTREAM_ERROR mirrors Copilot endpoint HTTP 404 (Unable to resolve geographical area 'Beaufort Sea'.)"
+    },
+    {
+      "capability": "Layer discovery: list layers",
+      "tool": "list_layers",
+      "args": {},
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": null,
+      "checks": [],
+      "notes": [
+        "Read-only operation; no map state change expected."
+      ],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Layers:\n- Areas of Interest (on)\n- Polar Countries (on)\n- Land Mask (on)\n- Script 1 - Research (on)\n- SWOT freeboard (off)\n- ICESat-2 freeboard (off)\n- Snow Depth Over Ice (12 km, AMSR-E, Aqua) (off)\n- Sea Ice Concentration (12 km, AMSR2 (GCOM-W1), AMSRE (Aqua) (off)\n- Sea Ice Concentration (25 km, ",
+      "problems": []
+    },
+    {
+      "capability": "Layer discovery: analyzable layers",
+      "tool": "list_analyzable_layers",
+      "args": {},
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": null,
+      "checks": [],
+      "notes": [
+        "Read-only operation; no map state change expected."
+      ],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "**Data Layers (6)** — support statistics, difference, and analysis:\n- **SWOT freeboard** (hidden) — COG/GeoTIFF, time-enabled, units: m, range: -0.5-1.5\n- **ICESat-2 freeboard** (hidden) — COG/GeoTIFF, time-enabled, units: m, range: 0-2\n- **ssha SWOT_L2_LR_NPFRB_024_535 COG** (hidden) — COG/GeoTIFF,",
+      "problems": []
+    },
+    {
+      "capability": "Layer metadata: describe layer",
+      "tool": "describe_layer",
+      "args": {
+        "name": "SWOT freeboard"
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": null,
+      "checks": [],
+      "notes": [
+        "Read-only operation; no map state change expected."
+      ],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Layer: SWOT freeboard\nType: Unknown\nVisible: No",
+      "problems": []
+    },
+    {
+      "capability": "Layer control: visibility",
+      "tool": "toggle_layer",
+      "args": {
+        "name": "SWOT freeboard",
+        "visible": true
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "layer 'SWOT freeboard' visible",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [
+        "SWOT freeboard"
+      ],
+      "output_head": "",
+      "problems": []
+    },
+    {
+      "capability": "Layer control: opacity",
+      "tool": "set_layer_opacity",
+      "args": {
+        "name": "Polar Countries",
+        "opacity": 0.5
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "layer 'Polar Countries' opacity",
+          "expected": 0.5,
+          "actual": 0.5,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [
+        "Polar Countries"
+      ],
+      "output_head": "Opacity set: Polar Countries 0.5",
+      "problems": []
+    },
+    {
+      "capability": "Map navigation: center/zoom",
+      "tool": "zoom_to",
+      "args": {
+        "center": [
+          -150,
+          72
+        ],
+        "zoom": 4
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "map center [lon, lat]",
+          "expected": [
+            -150,
+            72
+          ],
+          "actual": [
+            -150,
+            72
+          ],
+          "ok": true
+        },
+        {
+          "check": "map zoom",
+          "expected": 4,
+          "actual": 4,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Zoomed to center (-150, 72) @ z4",
+      "problems": []
+    },
+    {
+      "capability": "Map navigation: bbox",
+      "tool": "zoom_to",
+      "args": {
+        "bbox": [
+          -170,
+          65,
+          -130,
+          80
+        ]
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "map fitted to the bbox like Leaflet fitBounds (center within 2 px, same zoom)",
+          "expected": {
+            "center": [
+              -158.973427,
+              73.270363
+            ],
+            "zoom": 3.690203
+          },
+          "actual": {
+            "center": [
+              -158.973427,
+              73.270363
+            ],
+            "zoom": 3.690203
+          },
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Zoomed to bounding box",
+      "problems": []
+    },
+    {
+      "capability": "Time selection",
+      "tool": "set_time",
+      "args": {
+        "time": "2024-03-15T00:00:00Z",
+        "layers": [
+          "SWOT freeboard"
+        ]
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "layers updated by the handler",
+          "expected": ">= 1",
+          "actual": 1,
+          "ok": true
+        },
+        {
+          "check": "time window / layer times changed (or already at the requested time)",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [
+        "SWOT freeboard",
+        "ICESat-2 freeboard",
+        "Snow Depth Over Ice (12 km, AMSR-E, Aqua)",
+        "Sea Ice Concentration (12 km, AMSR2 (GCOM-W1), AMSRE (Aqua)",
+        "Sea Ice Concentration (25 km, AMSR-E, Aqua)",
+        "GIBS MODIS True Color",
+        "ssha SWOT_L2_LR_NPFRB_024_535 COG",
+        "GIBS MODIS True Color",
+        "GIBS MODIS True Color",
+        "GIBS MODIS True Color",
+        "GFS Winds 10m height",
+        "GIBS MODIS True Color"
+      ],
+      "output_head": "Parsed \"2024-03-15T00:00:00Z\" to 2024-03-15T00:00:00Z.\nAttempting to set the time on 1 layer.\nUpdated 1 time-enabled layer:\n• SWOT freeboard: Displaying data for 2024-03-01T00:00:00Z (range 2023-07-01T00:00:00Z – 2025-08-01T00:00:00Z; Requested time is finer than this monthly layer; using the closes",
+      "problems": []
+    },
+    {
+      "capability": "Threshold highlighting",
+      "tool": "threshold_highlight",
+      "args": {
+        "layer_name": "SWOT freeboard",
+        "variable": "freeboard",
+        "operator": ">",
+        "value": 0.3
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "highlight overlay active",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        },
+        {
+          "check": "highlight expression",
+          "expected": "(b1>0.3)*1",
+          "actual": "(b1>0.3)*1",
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Highlight: freeboard > 0.3 on SWOT freeboard",
+      "problems": []
+    },
+    {
+      "capability": "Highlight opacity",
+      "tool": "highlight_opacity",
+      "args": {
+        "delta": -0.3
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "highlight opacity",
+          "expected": 0.3,
+          "actual": 0.3,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Highlight opacity set to 0.30.",
+      "problems": []
+    },
+    {
+      "capability": "Highlight hide",
+      "tool": "highlight_toggle",
+      "args": {},
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "highlight opacity",
+          "expected": 0,
+          "actual": 0,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "",
+      "problems": []
+    },
+    {
+      "capability": "Highlight show",
+      "tool": "highlight_toggle",
+      "args": {},
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "highlight opacity",
+          "expected": 0.3,
+          "actual": 0.3,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "",
+      "problems": []
+    },
+    {
+      "capability": "Highlight clear",
+      "tool": "highlight_clear",
+      "args": {},
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "highlight overlay active",
+          "expected": false,
+          "actual": false,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Cleared highlight overlay.",
+      "problems": []
+    },
+    {
+      "capability": "Statistics: regional mean (server)",
+      "tool": "calculate_layer_mean",
+      "args": {
+        "layer_name": "SWOT freeboard",
+        "geographical_area": "Beaufort Sea"
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "mean computed",
+          "expected": "number",
+          "actual": "number",
+          "ok": true
+        },
+        {
+          "check": "value equals /api/agent/analytics/statistics response",
+          "expected": 0.07878067103628876,
+          "actual": 0.07878067103628876,
+          "ok": true
+        },
+        {
+          "check": "analysis area drawn ('mean' overlay)",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        }
+      ],
+      "notes": [
+        "Statistics source: server."
+      ],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Confirmed area: Beaufort Sea (bbox -160.0000, 70.0000, -120.0000, 76.0000)\nMean: 0.0788 (std 0.0372)\n25th percentile: 0.0542\nMedian: 0.0719\n75th percentile: 0.0962\nMin: -0.1082\nMax: 0.3850\nValid samples: 2,104\n\n**How these statistics were computed:**\nStatistics were computed on the server by reading",
+      "problems": []
+    },
+    {
+      "capability": "Comparison: layer difference (server)",
+      "tool": "calculate_layer_difference",
+      "args": {
+        "layer_a": "SWOT freeboard",
+        "layer_b": "ICESat-2 freeboard"
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "difference mean computed",
+          "expected": "number",
+          "actual": "number",
+          "ok": true
+        },
+        {
+          "check": "value equals /api/agent/analytics/difference response",
+          "expected": -0.1739481190685183,
+          "actual": -0.1739481190685183,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [
+        "ICESat-2 freeboard"
+      ],
+      "output_head": "Turned on layer: **ICESat-2 freeboard**\nComputing pixel-by-pixel difference for **2024-03-15**: **SWOT freeboard** minus **ICESat-2 freeboard**...\n\n**Difference: SWOT freeboard - ICESat-2 freeboard**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n**SWOT freeboard** mean: 7.8%\n**ICESat-2 freeboard** mean: 26",
+      "problems": []
+    },
+    {
+      "capability": "Statistics: multi-layer + correlation",
+      "tool": "multilayer_statistics",
+      "args": {
+        "layer_names": [
+          "SWOT freeboard",
+          "ICESat-2 freeboard"
+        ]
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "statistics returned",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        },
+        {
+          "check": "analysis area drawn ('multilayer-stats' overlay)",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Multi-Layer Statistical Analysis\nArea: current view\nSource: local-cog\nLayers: 2 analyzed\n\nLayer: SWOT freeboard\n  Mean: 0.1450 ± 0.0764\n  Median: 0.1441 | Q25: 0.0897 | Q75: 0.1901\n  Range: [-0.2729, 1.1764]\n  Skewness: 1.238 (highly skewed)\n  Kurtosis: 11.231 (leptokurtic)\n  Valid pixels: 22,667 (2",
+      "problems": []
+    },
+    {
+      "capability": "Analysis: temporal trends",
+      "tool": "temporal_trends",
+      "args": {
+        "layer_name": "SWOT freeboard",
+        "time_start": "2023-10-01",
+        "time_end": "2024-04-01",
+        "interval": "monthly"
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "trend results returned",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        },
+        {
+          "check": "analysis area drawn ('temporal-trends' overlay)",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Temporal Trend Analysis: SWOT freeboard\nArea: current view\nTime Period: 2023-10-01 to 2024-03-02\nInterval: monthly\nSource: local-cog\nData Points: 6 sampled\n\nOverall Trend:\n  Direction: increasing\n  Magnitude: 0.069\n  Percent Change: 122.0%\n  Significance: significant\n  R²: 0.910\n\nRecent Data Points:",
+      "problems": []
+    },
+    {
+      "capability": "Spatial analysis: autocorrelation/hotspots",
+      "tool": "spatial_statistics",
+      "args": {
+        "layer_name": "SWOT freeboard"
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "spatial statistics returned",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        },
+        {
+          "check": "analysis area drawn ('spatial-analysis' overlay)",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Spatial Autocorrelation Analysis: SWOT freeboard\nArea: current view\nSource: local-cog\nGrid: 16x16 (95 valid cells from 53,347 pixels)\nGlobal Mean: 0.1208 | Std: 0.0531\n\nMoran's I Analysis:\n  Index: 0.2976\n  Expected: -0.0106\n  Z-Score: 30820.50\n  Interpretation: Highly significant spatial autocorrel",
+      "problems": []
+    },
+    {
+      "capability": "Comparison: change detection",
+      "tool": "change_detection",
+      "args": {
+        "layer_name": "SWOT freeboard",
+        "before_time": "2023-11-01",
+        "after_time": "2024-03-01"
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "change detection results returned",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        },
+        {
+          "check": "analysis area drawn ('change-detection' overlay)",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Change Detection Analysis: SWOT freeboard\nArea: current view\nComparison: 2023-11-01 vs 2024-03-01\nSource: local-cog\n\nBefore Period:\n  Mean: 0.0794 | Std: 0.0449 | Range: [-0.8478, 0.9936]\n  Median: 0.0718 | Valid pixels: 32,068\n\nAfter Period:\n  Mean: 0.1277 | Std: 0.0797 | Range: [-0.5888, 1.1930]\n ",
+      "problems": []
+    },
+    {
+      "capability": "Anomaly detection (simulated handler)",
+      "tool": "detect_anomalies",
+      "args": {
+        "layer_name": "SWOT freeboard"
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": null,
+      "checks": [],
+      "notes": [
+        "SIMULATED: the existing Copilot anomaly handler reports fixed placeholder statistics; nothing was computed from the layer data."
+      ],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Anomaly Detection: SWOT freeboard for November 2024\nArea: Arctic Ocean\n\nData Statistics:\n  Mean: 1.234m ± 0.456m\n  Median: 1.150m\n  Range: [-0.500m, 3.800m]\n  Valid pixels: 1,248,576\n\nZ-Score Analysis (±2.5σ):\n  Normal range: [0.094m, 2.374m]\n  [WARNING] Extreme low: -0.500m (-3.8σ)\n  [WARNING] Extr",
+      "problems": []
+    },
+    {
+      "capability": "Export (synthetic handler)",
+      "tool": "data_export",
+      "args": {
+        "layer_name": "SWOT freeboard",
+        "format": "csv",
+        "auto_download": false
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "export prepared",
+          "expected": "ready",
+          "actual": "ready",
+          "ok": true
+        }
+      ],
+      "notes": [
+        "SYNTHETIC: the existing Copilot export handler generates sample values; the file does not contain raster pixels."
+      ],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Data Export Ready: SWOT freeboard\nFormat: CSV\nArea: current view\nBounding Box: [-111.54, 24.30, 88.83, 43.19]\nResolution: medium\nData Points: 15,238\nFile Size: 871.0 KB\n\nFile: SWOT_freeboard_export_2026-10-31.csv\n\n[DOWNLOAD] Click to download the exported data\n\nNote: Data export includes all values ",
+      "problems": []
+    },
+    {
+      "capability": "Layer information (Copilot backend)",
+      "tool": "layer_information",
+      "args": {
+        "layer_name": "SWOT freeboard"
+      },
+      "status": "verified",
+      "mcp_status": "failed",
+      "error_code": "EXECUTION_FAILED",
+      "state_verified": false,
+      "checks": [],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": null
+      },
+      "changed_layers": [],
+      "output_head": "",
+      "problems": []
+    },
+    {
+      "capability": "Integration: Analysis tool",
+      "tool": "run_analysis",
+      "args": {
+        "layer_name": "SWOT freeboard",
+        "chart_type": "histogram",
+        "start_date": "2024-01-01",
+        "end_date": "2024-03-01"
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "active tool",
+          "expected": "AnalysisTool",
+          "actual": "AnalysisTool",
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [],
+      "output_head": "Analysis Tool opened for: SWOT freeboard [histogram]\nTime range: 2024-01-01 → 2024-03-01\nDraw a bounding box on the map, then click Generate Analysis.",
+      "problems": []
+    },
+    {
+      "capability": "Integration: Animation tool (not in mission)",
+      "tool": "open_animation_tool",
+      "args": {
+        "layer_name": "SWOT freeboard",
+        "start_date": "2023-10-01",
+        "end_date": "2024-03-01"
+      },
+      "status": "verified",
+      "mcp_status": "failed",
+      "error_code": "CAPABILITY_UNAVAILABLE",
+      "state_verified": false,
+      "checks": [
+        {
+          "check": "tool enabled in this mission",
+          "expected": "AnimationTool",
+          "actual": [
+            "LayersTool",
+            "LegendTool",
+            "InfoTool",
+            "DrawTool",
+            "AgentChatTool",
+            "AnalysisTool",
+            "IdentifierTool"
+          ],
+          "ok": false
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [
+        "SWOT freeboard",
+        "ICESat-2 freeboard",
+        "Snow Depth Over Ice (12 km, AMSR-E, Aqua)",
+        "Sea Ice Concentration (12 km, AMSR2 (GCOM-W1), AMSRE (Aqua)",
+        "Sea Ice Concentration (25 km, AMSR-E, Aqua)",
+        "GIBS MODIS True Color",
+        "ssha SWOT_L2_LR_NPFRB_024_535 COG",
+        "GIBS MODIS True Color",
+        "GIBS MODIS True Color",
+        "GIBS MODIS True Color",
+        "GFS Winds 10m height",
+        "GIBS MODIS True Color"
+      ],
+      "output_head": "Animation Tool opened for: SWOT freeboard\nTime range: 2023-10-01 → 2024-03-01\nDraw a bounding box on the map in the Animation panel, then click Export GIF.",
+      "problems": []
+    },
+    {
+      "capability": "Animation: time series",
+      "tool": "time_series_animation",
+      "args": {
+        "layer_name": "SWOT freeboard",
+        "time_start": "2023-10-01",
+        "time_end": "2024-03-01",
+        "interval": "monthly",
+        "auto_play": false
+      },
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "error_code": null,
+      "state_verified": true,
+      "checks": [
+        {
+          "check": "animation created",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        },
+        {
+          "check": "animation controls shown",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        }
+      ],
+      "notes": [],
+      "equivalent_to_chat": {
+        "state": true,
+        "output": true
+      },
+      "changed_layers": [
+        "ICESat-2 freeboard",
+        "GFS Winds 10m height"
+      ],
+      "output_head": "Enabled layer: SWOT freeboard\nDisabled data layers for animation: Script 1 - Research, ICESat-2 freeboard, Script 2 - Operations - Winter, Script 3 - Operations - Autumn, Script 4 - Operations - Mobile, GFS Winds 10m height\nKeeping base layers visible: Areas of Interest, Polar Countries, Land Mask, ",
+      "problems": []
+    },
+    {
+      "capability": "Isolation: other session, same mission",
+      "tool": "(all)",
+      "status": "verified",
+      "evidence": "25 MCP calls; idle frozon session state unchanged"
+    },
+    {
+      "capability": "Isolation: other mission",
+      "tool": "(all)",
+      "status": "verified",
+      "evidence": "Reference-Mission session state unchanged"
+    },
+    {
+      "capability": "Local command: MMGIS overview",
+      "tool": "copilot_ask",
+      "args": {
+        "message": "What is MMGIS?"
+      },
+      "status": "verified",
+      "reply": "MMGIS (Multi-Mission Geographic Information System) is a web mapping platform for mission operations and geospatial analysis.\nIt helps teams visualize layers in 2D/3D, explore time-enabled data, and collaborate around mission maps.",
+      "problems": []
+    },
+    {
+      "capability": "Local command: preset region zoom",
+      "tool": "copilot_ask",
+      "args": {
+        "message": "zoom to point barrow"
+      },
+      "status": "verified",
+      "reply": "Focused map on point barrow at zoom level 6.",
+      "problems": []
+    },
+    {
+      "capability": "Local command: time slider",
+      "tool": "copilot_ask",
+      "args": {
+        "message": "set the time slider to March 2024"
+      },
+      "status": "verified",
+      "reply": "Parsed \"March 2024\" to 2024-03-01T00:00:00Z.\nAttempting to set the time on 2 layers.\nUpdated 2 time-enabled layers:\n• GFS Winds 10m height: Displaying data for 2024-03-01T00:00:00Z (per-second data; showing the first day of 2024-03.)\n• GIBS MODIS True Color: Displaying data for 2024-03-01T00:00:00Z (per-second data; showing the first day of 2024-03.)",
+      "problems": []
+    },
+    {
+      "capability": "Undo last action",
+      "tool": "mmgis_undo_last_action / copilot_ask \"undo last\"",
+      "status": "verified",
+      "problems": []
+    },
+    {
+      "capability": "Isolation: other user",
+      "tool": "mmgis_list_sessions / toggle_layer",
+      "status": "verified",
+      "evidence": "mcp-e2e-viewer sees 0 sessions; targeting mcpadmin's session returns SESSION_NOT_FOUND; map unchanged"
+    },
+    {
+      "capability": "Integration: Animation tool",
+      "tool": "open_animation_tool",
+      "args": {
+        "layer_name": "EMIT Methane Mosaicked",
+        "start_date": "2023-08-01",
+        "end_date": "2023-08-31"
+      },
+      "mission": "Reference-Mission",
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "state_verified": true,
+      "active_tool": "AnimationTool",
+      "problems": []
+    },
+    {
+      "capability": "Map navigation (Web Mercator)",
+      "tool": "zoom_to",
+      "args": {
+        "bbox": [
+          -122.6,
+          37.6,
+          -122.3,
+          37.9
+        ]
+      },
+      "mission": "Reference-Mission",
+      "status": "verified",
+      "mcp_status": "succeeded",
+      "state_verified": true,
+      "active_tool": "AnimationTool",
+      "problems": []
+    },
+    {
+      "capability": "Liveness: vanished browser",
+      "tool": "mmgis_list_sessions",
+      "status": "verified",
+      "evidence": "killed browser's session removed after ~50s (behind the dev-server proxy); later calls get SESSION_NOT_FOUND"
+    },
+    {
+      "capability": "Natural-language planning (LLM)",
+      "tool": "copilot_ask",
+      "status": "blocked",
+      "evidence": "Copilot planner: Agent planning failed. (check the Agent plugin's LLM provider configuration: PROJECT_ENDPOINT/AGENT_NAME/AGENT_VERSION or GEMINI_API_KEY)"
+    }
+  ],
+  "page_errors": [],
+  "finished_at": "2026-10-31T09:22:09.249Z"
+}

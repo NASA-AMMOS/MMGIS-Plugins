@@ -1,0 +1,54 @@
+/* Copilot MCP bridge indicator: sits above the time bar (z-index 1500/1501)
+   and below the main UI chrome (2005). */
+.mmgis-copilot-mcp-indicator {
+    position: fixed;
+    right: 12px;
+    bottom: 96px;
+    z-index: 1502;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 260px;
+    padding: 4px 10px;
+    border: 1px solid var(--color-i, #4a4a4a);
+    border-radius: 12px;
+    background: var(--color-a, #1f1f1f);
+    color: var(--color-f, #e6e6e6);
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    opacity: 0.9;
+}
+
+.mmgis-copilot-mcp-indicator::before {
+    content: '';
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #9e9e9e;
+}
+
+.mmgis-copilot-mcp-indicator:hover,
+.mmgis-copilot-mcp-indicator:focus-visible {
+    opacity: 1;
+    outline: 2px solid var(--color-mmgis, #26a8ff);
+    outline-offset: 1px;
+}
+
+.mmgis-copilot-mcp-indicator.is-connected::before {
+    background: #2ecc71;
+}
+
+.mmgis-copilot-mcp-indicator.is-busy::before {
+    background: #f1c40f;
+}
+
+.mmgis-copilot-mcp-indicator.is-error::before,
+.mmgis-copilot-mcp-indicator.is-connecting::before {
+    background: #e67e22;
+}
