@@ -981,17 +981,67 @@ export async function render_layers_line() {
     if (!items.length) {
         throw new Error('No layers available to list.')
     }
-    const summaryLines = items.map(
-        (item) => `- ${item.displayName} (${item.visible ? 'on' : 'off'})`
+    // Header entries are folders, not data layers.
+    const layerItems = items.filter((item) => item.config?.type !== 'header')
+    const rows = await Promise.all(
+        layerItems.map(async (item) => ({
+            item,
+            coverage: await describeLayerTemporalCoverage(item),
+        }))
     )
-    appendLine(`Layers:\n${summaryLines.join('\n')}`)
+    const summaryLines = rows.map(
+        ({ item, coverage }) =>
+            `- ${item.displayName} (${item.visible ? 'on' : 'off'}): ${coverage.text}`
+    )
+    appendLine(
+        `All available layers (${rows.length}), with temporal coverage:\n${summaryLines.join('\n')}`
+    )
     return {
-        layers: items.map((item) => ({
+        layers: rows.map(({ item, coverage }) => ({
             id: item.id,
             name: item.displayName,
             visible: item.visible,
+            time_start: coverage.start,
+            time_end: coverage.end,
         })),
     }
+}
+
+// Best-effort temporal coverage for a layer: analytics catalog first, then the
+// layer's own time settings. Never throws; layers without time say so.
+async function describeLayerTemporalCoverage(item) {
+    const config = item.config || {}
+    const liveOptions = item.liveInstance?.options || {}
+    const clean = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+    let start = null
+    let end = null
+    try {
+        const base = determineAnalyticsEndpoint({ layer: item }, null)
+        if (base) {
+            const match = await resolveAnalyticsLayerKey(
+                item.name,
+                config,
+                base
+            )
+            start = clean(match?.info?.time_range?.start)
+            end = clean(match?.info?.time_range?.end)
+        }
+    } catch (_) {
+        // Catalog unavailable: fall through to the layer's own settings.
+    }
+    start = start || clean(liveOptions.starttime) || clean(config.time?.start)
+    end = end || clean(liveOptions.endtime) || clean(config.time?.end)
+    if (start || end) {
+        return { start, end, text: `${start || '?'} to ${end || '?'}` }
+    }
+    if (config.time?.enabled) {
+        return {
+            start: null,
+            end: null,
+            text: 'time-enabled (range not published)',
+        }
+    }
+    return { start: null, end: null, text: 'no time dimension' }
 }
 
 export async function render_text_with_citation(_ctx, payload) {
