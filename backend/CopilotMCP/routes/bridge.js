@@ -46,8 +46,8 @@ function createBridgeRouter({ s, cfg, sessions }) {
   // when there is no such session. The secret is checked in the handler.
   const sessionIdOf = (req) => (req.method === "GET" ? req.query.session_id : req.body && req.body.session_id);
   const sessionMission = async (req) => {
-    const session = sessions.sessions.get(String(sessionIdOf(req) || ""));
-    return session ? resolvers.mission(() => session.mission)(req) : null;
+    const mission = sessions.missionOf(sessionIdOf(req));
+    return mission ? resolvers.mission(() => mission)(req) : null;
   };
   sessionMission.description = "mission of the named browser session";
   const viewSessionMission = authorize("mission.view", sessionMission);

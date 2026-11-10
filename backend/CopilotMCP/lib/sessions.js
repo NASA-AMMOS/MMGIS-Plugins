@@ -298,6 +298,13 @@ class BrowserSessionRegistry {
     };
   }
 
+  // Mission of a registered session, or null. The bridge routes use it for
+  // their permission check, before the session secret is verified.
+  missionOf(id) {
+    const session = this.sessions.get(String(id || ""));
+    return session ? session.mission : null;
+  }
+
   list({ owner, mission = null } = {}) {
     return [...this.sessions.values()]
       .filter((s) => s.owner === owner && (!mission || s.mission === mission))

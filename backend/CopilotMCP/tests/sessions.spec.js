@@ -168,6 +168,16 @@ test.describe('BrowserSessionRegistry @unit', () => {
         expect(() => registry.select({ owner: 'bob' })).toThrow(expect.objectContaining({ code: ERROR_CODES.NO_BROWSER_SESSION }))
     })
 
+    test("missionOf() reports a registered session's mission and null for unknown ids", () => {
+        const registry = new BrowserSessionRegistry()
+        const { session } = registerOne(registry, 'alice', 'Reference-Mission')
+        expect(registry.missionOf(session.id)).toBe('Reference-Mission')
+        expect(registry.missionOf('no-such-session')).toBe(null)
+        expect(registry.missionOf(undefined)).toBe(null)
+        registry.unregister(session)
+        expect(registry.missionOf(session.id)).toBe(null)
+    })
+
     test('keeps at most maxSessionsPerUser sessions per user, replacing the least recently seen', () => {
         const clock = fakeClock()
         const registry = new BrowserSessionRegistry({ maxSessionsPerUser: 2, now: clock.now })

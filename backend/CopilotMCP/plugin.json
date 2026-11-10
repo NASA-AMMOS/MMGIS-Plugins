@@ -37,5 +37,5 @@
   "pluginDependencies": ["NASA-AMMOS--MMGIS-Plugins/backend/Agent"],
   "author": "midatm1234",
   "license": "Apache-2.0",
-  "repository": "https://github.com/midatm1234/MMGIS-Plugins"
+  "repository": "https://github.com/NASA-AMMOS/MMGIS-Plugins"
 }
