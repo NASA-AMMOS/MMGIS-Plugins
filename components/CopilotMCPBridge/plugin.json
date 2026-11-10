@@ -2,7 +2,7 @@
   "uuid": "0d7c2b1e-5a64-4f0b-8f3e-2a9c6b1d4e57",
   "id": "experimental-copilot-mcp-bridge",
   "name": "CopilotMCPBridge",
-  "displayName": "MMGIS MCP Bridge",
+  "display_name": "MMGIS MCP Bridge",
   "type": "component",
   "version": "0.1.0",
   "tier": "experimental",
@@ -56,6 +56,10 @@
       }
     ]
   },
+  "pluginDependencies": [
+    "NASA-AMMOS--MMGIS-Plugins/backend/CopilotMCP",
+    "NASA-AMMOS--MMGIS-Plugins/tools/AgentChat"
+  ],
   "author": "midatm1234",
   "license": "Apache-2.0",
   "repository": "https://github.com/midatm1234/MMGIS-Plugins"

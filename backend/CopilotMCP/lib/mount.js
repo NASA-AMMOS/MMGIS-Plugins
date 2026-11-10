@@ -5,23 +5,22 @@
 //   GET  {ROOT_PATH}/api/copilot-mcp/status          bridge discovery for the browser
 //   *    {ROOT_PATH}/api/copilot-mcp/bridge/...      browser session bridge
 //
-// All routes are loopback-only unless COPILOT_MCP_ALLOW_REMOTE=true and use
-// MMGIS's own ensureUser()/stopGuests gates (logged-in users or long-term
-// tokens, exactly like the Copilot's /api/agent routes).
+// All routes are loopback-only unless COPILOT_MCP_ALLOW_REMOTE=true. Every
+// route declares its permission with s.authorize (see each router), so
+// long-term token scopes and mission limits apply and the routes appear in
+// MMGIS's permissions table.
 
 const { BrowserSessionRegistry } = require("./sessions");
 const { createLoopback } = require("./loopback");
 const { createCatalog } = require("./catalog");
-const { localOnly, jsonRpcGate, createMissionAccess } = require("./access");
+const { localOnly, createMissionAccess } = require("./access");
 const { createMcpRouter } = require("../routes/mcp");
 const { createBridgeRouter } = require("../routes/bridge");
-
-const PLUGIN_VERSION = require("../plugin.json").version;
 
 function mountCopilotMcp(s, cfg, log = () => {}) {
   const sessions = new BrowserSessionRegistry(cfg);
   const loopback = createLoopback(cfg);
-  const missionAccess = createMissionAccess(loopback);
+  const missionAccess = createMissionAccess(s);
   const catalog = createCatalog({ app: s.app, cfg, sessions, loopback, missionAccess });
   const base = `${s.ROOT_PATH || ""}${cfg.basePath}`;
 
@@ -29,31 +28,15 @@ function mountCopilotMcp(s, cfg, log = () => {}) {
     `${base}/mcp`,
     localOnly(cfg, { jsonRpc: true }),
     s.checkHeadersCodeInjection,
-    jsonRpcGate(s.ensureUser()),
-    jsonRpcGate(s.stopGuests),
-    createMcpRouter({ catalog, log })
+    s.registerRouter(`${base}/mcp`, createMcpRouter({ s, catalog, log }))
   );
 
-  s.app.get(`${base}/status`, localOnly(cfg), s.checkHeadersCodeInjection, s.ensureUser(), s.setContentType, (req, res) => {
-    const user = typeof req.user === "string" ? req.user : null;
-    res.json({
-      status: "success",
-      enabled: true,
-      version: PLUGIN_VERSION,
-      loggedIn: !!user && user !== "guest",
-      user,
-      pollTimeoutMs: cfg.pollTimeoutMs,
-    });
-  });
-
   s.app.use(
-    `${base}/bridge`,
+    base,
     localOnly(cfg),
     s.checkHeadersCodeInjection,
-    s.ensureUser(),
-    s.stopGuests,
     s.setContentType,
-    createBridgeRouter({ cfg, sessions, missionAccess })
+    s.registerRouter(base, createBridgeRouter({ s, cfg, sessions, missionAccess }))
   );
 
   return {

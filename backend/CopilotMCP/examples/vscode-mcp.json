@@ -3,7 +3,7 @@
     {
       "type": "promptString",
       "id": "mmgis-token",
-      "description": "MMGIS long-term token (Configure → API Tokens)",
+      "description": "MMGIS long-term token of a dedicated non-admin user, scoped to the MCP missions (Configure → API Tokens)",
       "password": true
     }
   ],

@@ -6,7 +6,8 @@
 //   node examples/mcp-client.mjs [tool] ['{"json":"args"}']
 //
 // Without arguments it lists the tools and the caller's browser sessions.
-// Run from backend/CopilotMCP (after `npm ci --omit=dev` there).
+// Run from backend/CopilotMCP after `npm run plugins:install` in the MMGIS root.
+// Use a token of a dedicated non-admin user, limited to the missions it needs.
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'

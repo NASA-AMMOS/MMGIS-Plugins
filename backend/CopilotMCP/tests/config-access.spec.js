@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test'
 const path = require('path')
 const { execFileSync } = require('child_process')
 const { loadConfig, ENVS } = require('../lib/config')
-const { requestIsLocal, localOnly, jsonRpcGate } = require('../lib/access')
+const { requestIsLocal, localOnly, requireSignedIn } = require('../lib/access')
 const { withRoutingProperties, splitRouting, loadFileRegistry } = require('../lib/registry')
 const pluginManifest = require('../plugin.json')
 
@@ -63,7 +63,15 @@ test.describe('Copilot MCP configuration @unit', () => {
 
     test('every environment variable is documented in plugin.json', () => {
         expect(Object.keys(pluginManifest.envs).sort()).toEqual(ENVS.map((e) => e.name).sort())
-        expect(pluginManifest.dependencies).toEqual({}) // SDK is plugin-local (package.json), never hoisted into MMGIS
+    })
+
+    test('plugin.json declares the MCP SDK and the plugins it depends on', () => {
+        expect(pluginManifest.dependencies).toEqual({ npm: { '@modelcontextprotocol/sdk': '1.32.2' } })
+        expect(pluginManifest.pluginDependencies).toEqual(['NASA-AMMOS--MMGIS-Plugins/backend/Agent'])
+        const bridge = require('../../../components/CopilotMCPBridge/plugin.json')
+        expect(bridge.display_name).toBe('MMGIS MCP Bridge')
+        expect(bridge.displayName).toBeUndefined()
+        expect(bridge.pluginDependencies).toEqual(['NASA-AMMOS--MMGIS-Plugins/backend/CopilotMCP', 'NASA-AMMOS--MMGIS-Plugins/tools/AgentChat'])
     })
 
     test('the plugin mounts nothing and loads no MCP SDK unless WITH_COPILOT_MCP=true', () => {
@@ -108,27 +116,35 @@ test.describe('Copilot MCP request gating @unit', () => {
         expect(nextCalled).toBe(true)
     })
 
-    test('jsonRpcGate turns MMGIS auth failures (HTTP 200 + status failure, login page) into HTTP 401 JSON-RPC errors', () => {
-        const deny = (req, res) => res.send({ status: 'failure', message: 'User is not logged in.' })
-        const res = fakeRes()
-        jsonRpcGate(deny)(fakeReq({ body: { jsonrpc: '2.0', id: 1 } }), res, () => {
-            throw new Error('must not continue')
-        })
-        expect(res.statusCode).toBe(401)
-        expect(res.headers['www-authenticate']).toContain('Bearer')
-        expect(res.body.error.message).toContain('User is not logged in.')
+    test('requireSignedIn answers guests and invalid tokens with HTTP 401 (a JSON-RPC error on the MCP endpoint)', async () => {
+        const sFor = (principal) => ({ ensurePrincipal: async (req) => (req.principal = principal) })
+        const run = (principal, opts) =>
+            new Promise((resolve) => {
+                const res = fakeRes()
+                const origJson = res.json
+                res.json = (body) => {
+                    origJson(body)
+                    resolve({ res, passed: false })
+                    return res
+                }
+                requireSignedIn(sFor(principal), opts)(fakeReq({ body: { jsonrpc: '2.0', id: 1 } }), res, () => resolve({ res, passed: true }))
+            })
 
-        const renderLogin = (req, res) => res.render('login')
-        const res2 = fakeRes()
-        jsonRpcGate(renderLogin)(fakeReq(), res2, () => {})
-        expect(res2.statusCode).toBe(401)
+        const guest = await run({ kind: 'anonymous', authenticated: false }, { jsonRpc: true })
+        expect(guest.passed).toBe(false)
+        expect(guest.res.statusCode).toBe(401)
+        expect(guest.res.headers['www-authenticate']).toContain('Bearer')
+        expect(guest.res.body).toMatchObject({ jsonrpc: '2.0', id: 1, error: { code: -32001 } })
 
-        let passed = false
-        const allow = (req, res, next) => next()
-        const res3 = fakeRes()
-        jsonRpcGate(allow)(fakeReq(), res3, () => (passed = true))
-        expect(passed).toBe(true)
-        expect(res3.send).not.toBe(undefined)
+        const invalid = await run({ kind: 'invalid_token', authenticated: false }, { jsonRpc: true })
+        expect(invalid.res.statusCode).toBe(401)
+        expect(invalid.res.headers['www-authenticate']).toContain('invalid_token')
+
+        const plain = await run({ kind: 'anonymous', authenticated: false })
+        expect(plain.res.body).toMatchObject({ status: 'failure' })
+
+        expect((await run({ kind: 'token', authenticated: true, username: 'alice' })).passed).toBe(true)
+        expect((await run({ kind: 'user', authenticated: true, username: 'alice' })).passed).toBe(true)
     })
 })
 

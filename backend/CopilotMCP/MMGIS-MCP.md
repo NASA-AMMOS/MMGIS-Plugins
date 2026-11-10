@@ -35,11 +35,11 @@ MCP client ──Bearer token──▶ MMGIS MCP backend (/api/copilot-mcp/mcp)
 - MMGIS 5.x with this plugin container installed, including the `Agent` backend and `AgentChat` tool
   (`WITH_AGENT=true`). An LLM is only needed for `copilot_ask` requests that go to the planner.
 - Node.js 20 or newer.
-- The MCP SDK installed inside the plugin (it is deliberately not hoisted to MMGIS's root
-  `node_modules`; see the README):
+- The plugins' npm dependencies, including the MCP SDK that `plugin.json` declares. From the
+  MMGIS root:
 
   ```bash
-  cd plugins/midatm1234--MMGIS-Plugins/backend/CopilotMCP && npm ci --omit=dev
+  npm run plugins:install
   ```
 
 ## Enable it
@@ -68,11 +68,21 @@ MCP client ──Bearer token──▶ MMGIS MCP backend (/api/copilot-mcp/mcp)
    { "on": true, "name": "CopilotMCPBridge", "icon": "lan-connect", "js": "CopilotMCPBridge", "variables": {} }
    ```
 
-4. **Create a long-term token**: Configure → **API Tokens**, or
-   `POST /api/longtermtoken/generate` with an admin session. The token acts as the user who
-   created it, so treat it like a password and never commit it.
+4. **Create a dedicated, non-admin MMGIS user and a scoped token for the client.** The token
+   goes into an AI client's configuration, and the client can do whatever the token allows.
+   So do not use an administrator's token. Instead:
+   - create a user that can view only the missions the client should drive;
+   - signed in as that user, create a long-term token with the scopes `site.view`,
+     `mission.view`, `data.geodatasets.read`, `data.datasets.read` and `data.stac.read`
+     (`"scopes": "read"`), limited to those missions, with a finite expiry. Configure is only
+     open to administrators, so use the token API with that user's session (see the README,
+     *Installation*, step 4).
 
-5. **Open the mission in a browser** logged in as the same user. An `MCP · connected` indicator
+   MMGIS applies the token's scopes and missions to every MCP call, including commands sent to
+   the user's browser tab. The plugin refuses to drive a tab unless the token holds all five
+   capabilities on that mission. Treat the token like a password and never commit it.
+
+5. **Open the mission in a browser** logged in as that same user. An `MCP · connected` indicator
    appears; click it to pause or resume MCP control of that page.
 
 Per-mission settings (Components tab): *Auto Connect*, *Show Indicator*, and *Mirror to Copilot
@@ -123,16 +133,17 @@ That is the expected result: the endpoint refuses unauthenticated callers.
 | ------- | ------------ |
 | `NO_BROWSER_SESSION` | No logged-in tab has the mission open, or the bridge is not enabled for that mission. |
 | `AMBIGUOUS_BROWSER_SESSION` | More than one session matches; pass `session_id` or `mission` (see `mmgis_list_sessions`). |
-| `SESSION_NOT_FOUND` / `MISSION_FORBIDDEN` | The tab is logged in as a different user than the token, or the user cannot view the mission. |
+| `SESSION_NOT_FOUND` / `MISSION_FORBIDDEN` | The tab is logged in as a different user than the token, the user cannot view the mission, or the token's scopes/missions do not cover it. |
 | HTTP 401 | Missing or invalid token. |
 | HTTP 404 on `/api/copilot-mcp/status` | `WITH_COPILOT_MCP` is not `true`, or MMGIS was not restarted after changing it. |
-| Cannot find module `@modelcontextprotocol/...` | The SDK is not installed; run `npm ci --omit=dev` in `backend/CopilotMCP`. |
+| Cannot find module `@modelcontextprotocol/...` | The SDK is not installed; run `npm run plugins:install` from the MMGIS root. |
 | Bridge missing from Configure | Run `npm run plugins -- activate`, rebuild `configure/`, and restart. |
 
 ## Security notes
 
-- Authentication uses MMGIS's own session and long-term-token gates; mission permissions apply to
-  every call.
+- Every route declares its permission with MMGIS's `s.authorize`. Mission permissions are
+  checked for the caller's own principal on every call, so a long-term token's scopes and
+  missions apply. Use a dedicated non-admin user and a scoped token (see step 4).
 - Connections are local-only by default (`127.0.0.1` / `::1`, with a local `Host` and `Origin`).
 - A browser session belongs to the user and Express session that registered it; other users'
   sessions behave as if they do not exist.

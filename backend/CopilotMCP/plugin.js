@@ -2,19 +2,11 @@
 // when disabled nothing is mounted and the MCP SDK is not loaded, so the
 // Copilot, its APIs and every other plugin behave exactly as without it.
 
-const path = require("path");
 const { ENVS, loadConfig } = require("./lib/config");
 
-let logger = null;
-try {
-  logger = require(path.join(process.cwd(), "API/logger"));
-} catch (_) {
-  logger = null;
-}
-
 function log(level, message) {
-  if (logger) logger(level, message, "CopilotMCP");
-  else console.log(`[CopilotMCP] ${level}: ${message}`);
+  const write = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
+  write(`[CopilotMCP] ${level}: ${message}`);
 }
 
 const cfg = loadConfig(process.env);
@@ -35,7 +27,7 @@ module.exports = cfg.enabled
         } catch (err) {
           log(
             "error",
-            `Copilot MCP could not be mounted: ${err && err.message}. Install its plugin-local dependencies with "npm ci --omit=dev" in ${__dirname}.`
+            `Copilot MCP could not be mounted: ${err && err.message}. Install the plugins' npm dependencies (including @modelcontextprotocol/sdk) with "npm run plugins:install" from the MMGIS root.`
           );
         }
       },

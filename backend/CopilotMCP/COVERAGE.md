@@ -7,10 +7,10 @@ from the code: `backend/Agent/tool-registry.json`, `backend/Agent/routes/agent.j
 `tools/AgentChat/agentActions.js` / `localCommands.js`, and the existing tests and demo queries.
 
 **Verification baseline**: MMGIS `development` @ `c576fe49` (v5.4.6), MMGIS-Plugins `master` @
-`d58f249b` plus this branch. Local install with the `mmgis-mcp` micromamba env, an isolated
-PostGIS cluster, the `frozon` mission (EPSG:3413, local monthly freeboard COGs) and the built-in
+`d58f249b` plus this branch. Local install with an isolated PostGIS database, the `frozon` mission (EPSG:3413, local monthly freeboard COGs) and the built-in
 `Reference-Mission` (EPSG:3857), in headless Chromium (SwiftShader WebGL).
-Live report: [`verification/live-report.json`](verification/live-report.json).
+The live run (`tests/live.spec.js`, 48 cases: 45 verified, 2 reproduced upstream
+failures, 1 blocked on LLM credentials) is summarized in the pull request description.
 
 ## How capabilities were verified
 
@@ -103,7 +103,7 @@ optional `session_id` and `mission` routing fields.
 | 47 | Routing by `session_id` / `mission`; ambiguity and no-session errors without executing | `lib/sessions.js` `select()` | live, U |
 | 48 | Acknowledged delivery: commands run only after the page acknowledges them; unacknowledged ones are re-handed or withdrawn (`NOT_DELIVERED`, nothing ran); `RESULT_TIMEOUT`/`SESSION_CLOSED` report unknown outcomes | `lib/sessions.js`, `routes/bridge.js`, `CopilotMCPBridge.js` | U |
 | 49 | Isolation: other session of the same mission, other mission, other user | session ownership + secret + Express session binding | live (25 MCP calls left an idle `frozon` session and a `Reference-Mission` session unchanged; second user sees no sessions and gets `SESSION_NOT_FOUND`), U |
-| 50 | Authentication (token/session; guests rejected; 401 JSON-RPC), mission permission (`MISSION_FORBIDDEN`), loopback-only + DNS-rebinding checks, POST-only stateless endpoint | `lib/access.js`, `lib/mount.js`, `routes/mcp.js` | U, live (token and cookie clients) |
+| 50 | Permissions: every route declared with `s.authorize` (`site.view` / `mission.view`); signed-in callers only (401 JSON-RPC for guests and invalid tokens); mission checks with `s.can` for the caller's principal, so token scopes and missions apply, including to browser sessions (`MISSION_FORBIDDEN`); loopback-only + DNS-rebinding checks; POST-only stateless endpoint | `lib/access.js`, `lib/mount.js`, `routes/mcp.js`, `routes/bridge.js` | U (scoped-token and route-declaration tests); live before the `s.authorize` change (token and cookie clients) |
 | 51 | Disabled by default: no routes, no SDK loaded; bridge dormant | `plugin.js`, `CopilotMCPBridge.start()` | U; live baseline: the 24 MMGIS/Copilot/plugin checks give identical results without MCP, with MCP disabled and with MCP enabled (see below) |
 | 52 | Liveness: closed tabs and proxied disconnects are detected (grace) instead of lingering | `lib/sessions.js` | U; live: a killed browser's session behind the dev-server proxy disappeared after ~50 s (poll hold + grace), and later calls get `SESSION_NOT_FOUND` |
 

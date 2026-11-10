@@ -91,22 +91,20 @@ From the MMGIS root:
 
 ```bash
 # 1. Install this container with the MMGIS plugin CLI (a git clone under plugins/)
-npm run plugins -- install https://github.com/midatm1234/MMGIS-Plugins.git
-npm run plugins:install            # root-level deps of the other plugins
+npm run plugins -- install https://github.com/NASA-AMMOS/MMGIS-Plugins.git
 
-# 2. Install CopilotMCP's own runtime dependency (the MCP SDK) inside the plugin
-cd plugins/midatm1234--MMGIS-Plugins/backend/CopilotMCP && npm ci --omit=dev && cd -
+# 2. Install the plugins' npm dependencies, including the MCP SDK declared in plugin.json
+npm run plugins:install
 
 # 3. Activate the component (adds CopilotMCPBridge to src/pre/components.js) and build
 npm run plugins -- activate
 npm run build                      # not needed for `npm start` (dev server builds on the fly)
 ```
 
-The SDK is installed **plugin-locally on purpose**. Declaring it in `plugin.json` would make
-`install-plugin-deps` hoist the SDK's `ajv@8` into MMGIS's root `node_modules`. That
-changes how the Agent plugin validates Copilot actions (for example, `date-time` formats
-would stop being enforced). The plugin's `node_modules/` is git-ignored, and its HTTP
-routes use MMGIS's own Express instance.
+The MCP SDK (`@modelcontextprotocol/sdk`) is declared in `plugin.json` under
+`dependencies.npm`. The plugin manifests also declare `pluginDependencies` on the `Agent`
+backend and the `AgentChat` tool, so `npm run plugins -- deps` shows the links and
+`plugins disable` warns before one of them is turned off.
 
 Then enable it:
 
@@ -116,11 +114,34 @@ Then enable it:
    (Configure → mission → Components). Equivalent config JSON:
    `{"on": true, "name": "CopilotMCPBridge", "icon": "lan-connect", "js": "CopilotMCPBridge", "variables": {}}`.
    The mission must also have the **AgentChat** tool.
-3. Create a long-term token for the MCP client. Use Configure → API Tokens, or call the
-   endpoint with an admin session:
-   `curl -b admin.cookies -H 'Content-Type: application/json' -d '{"name":"mcp","period":"never"}' http://localhost:8888/api/longtermtoken/generate`.
-   The token acts as the admin user who created it.
-4. Open the mission in a browser and log in as the **same user** as the token. A small
+3. Create a **dedicated MMGIS user for the MCP client**, not an administrator. The token goes
+   into an AI client's configuration, and the client acts with everything the token allows,
+   so give that user only the missions the client should drive. Grant it at least viewing on
+   those missions.
+4. Create a **long-term token** as that user. Limit it to:
+   * **Scopes:** `site.view`, `mission.view`, `data.geodatasets.read`, `data.datasets.read`
+     and `data.stac.read`. These are the capabilities a browser session uses on the caller's
+     behalf, and the plugin refuses to drive a session unless the token holds all of them on
+     that mission.
+   * **Missions:** only the missions the client should reach.
+   * **Expiry:** a finite one where possible. Revoke the token when the client no longer needs it.
+
+   Configure (and its API Tokens page) is only open to administrators, so a non-admin user
+   creates the token through the token API with its own session (`"scopes": "read"` is the
+   read-only set above; `period` is in milliseconds, here 30 days):
+
+   ```bash
+   curl -c mcp-user.cookies -H 'Content-Type: application/json' \
+     -d '{"username":"<mcp user>","password":"<password>"}' http://localhost:8888/api/users/login
+   curl -b mcp-user.cookies -H 'Content-Type: application/json' \
+     -d '{"name":"mcp","period":"2592000000","scopes":"read","missions":["<mission>"]}' \
+     http://localhost:8888/api/longtermtoken/generate
+   ```
+
+   The token never has more access than its
+   user, and MMGIS applies its scopes and missions to every MCP call, including the commands
+   sent to the user's open browser tab. Treat it like a password and never commit it.
+5. Open the mission in a browser and log in as **that same user**. A small
    `MCP · connected` indicator appears; click it to pause or resume MCP control of that page.
 
 With `WITH_COPILOT_MCP` unset or `false`, the plugin mounts no routes and does not load
@@ -141,11 +162,16 @@ the SDK. On missions where the bridge component is enabled, each page load makes
 
 ### Security model
 
-* **Authentication**: MMGIS's own `ensureUser()` and `stopGuests` gates (the Copilot's
-  `/api/agent` gates) protect the MCP endpoint. Use `Authorization: Bearer <long-term token>`
-  or an MMGIS session cookie. Failures return HTTP 401 with a JSON-RPC error.
-* **Mission permissions**: every mission-scoped call is checked against MMGIS's
-  `/api/configure/missions` for the caller, and server tools forward the caller's
+* **Permissions**: every route declares its capability with MMGIS's `s.authorize`
+  (`site.view` for the MCP endpoint and status, `mission.view` on the registered or named
+  mission for the bridge), so the routes appear in MMGIS's permissions table. Callers must
+  be signed in: `Authorization: Bearer <long-term token>` or an MMGIS session cookie.
+  Guests and invalid tokens get HTTP 401 with a JSON-RPC error.
+* **Mission permissions**: every mission-scoped tool checks the caller's own principal
+  with `s.can` / `s.missionNamesWith`. For a long-term token that means the token's scopes
+  and missions, not those of the user's browser login. Sending a command to a browser
+  session needs `mission.view` and the data read capabilities on that session's mission,
+  because the page acts with the browser's login. Server tools forward the caller's
   credentials to the Agent API.
 * **Session boundaries**: browser sessions belong to the MMGIS user and Express session
   that registered them. Bridge requests need that login plus a per-session secret. Another
@@ -157,49 +183,12 @@ the SDK. On missions where the bridge component is enabled, each page load makes
   MCP command output is not written into the user's chat history unless
   `mirrorToCopilotPanel` is set.
 
-## Local development environment (micromamba `mmgis-mcp`)
-
-The environment specification lives in [`environment/`](environment):
-`mmgis-mcp.yml` (derived from MMGIS `python-environment.yml` + `.nvmrc` + PostGIS),
-an osx-arm64 explicit lock file, and the pip requirements.
-
-```bash
-# Create the env (explicit lock = exact, offline-friendly; or use the .yml on other platforms)
-micromamba create -y -n mmgis-mcp -f environment/mmgis-mcp-osx-arm64.explicit.txt
-micromamba run -n mmgis-mcp python -m pip install -r environment/mmgis-mcp-pip-requirements.txt
-# other platforms: micromamba create -y -f environment/mmgis-mcp.yml
-
-# Isolated PostgreSQL + PostGIS cluster for development (port 5434, never the system cluster)
-export DEV=$HOME/mmgis-mcp-dev PGDATA=$HOME/mmgis-mcp-dev/pgdata
-ENV_PREFIX=$(micromamba run -n mmgis-mcp python -c 'import sys; print(sys.prefix)')
-mkdir -p "$DEV" && (umask 077; printf '%s' "<db password>" > "$DEV/.dbpass")
-micromamba run -n mmgis-mcp initdb -D "$PGDATA" -U mmgis_mcp --pwfile="$DEV/.dbpass" --auth=scram-sha-256
-printf "listen_addresses = 'localhost'\nport = 5434\nextension_control_path = '\$system:%s/share/postgresql'\n" "$ENV_PREFIX" >> "$PGDATA/postgresql.conf"
-micromamba run -n mmgis-mcp pg_ctl -D "$PGDATA" -l "$DEV/postgres.log" start
-PGPASSWORD="$(cat "$DEV/.dbpass")" micromamba run -n mmgis-mcp createdb -h 127.0.0.1 -p 5434 -U mmgis_mcp mmgis_mcp   # role-named DB used by init-db
-```
-
-In MMGIS `.env` (start from `sample.env`), set `DB_HOST=127.0.0.1`, `DB_PORT=5434`,
-`DB_NAME=<dev database>`, `DB_USER=mmgis_mcp`, `DB_PASS=…`, a `SECRET` of at least 24
-characters, `WITH_AGENT=true`, `MMGIS_PYTHON=<env>/bin/python`, `WITH_STAC=true`,
-`WITH_TITILER=true` and `WITH_COPILOT_MCP=true`. The adjacent servers (`adjacent-servers/*/.env`)
-must point at the same cluster. Then run:
-
-```bash
-cd <MMGIS root>
-npm ci && (cd configure && npm ci && npm run build)
-micromamba run -n mmgis-mcp npm start      # API + MCP on :8888, app on http://localhost:8889
-```
-
-Always start MMGIS through `micromamba run -n mmgis-mcp …` (or an activated env). A shell
-that exports `PROJ_LIB`/`GDAL_DATA` from another environment breaks TiTiler's projections.
-
 ## Connecting an MCP client
 
 **Node SDK** (verified; [`examples/mcp-client.mjs`](examples/mcp-client.mjs)):
 
 ```bash
-cd plugins/midatm1234--MMGIS-Plugins/backend/CopilotMCP
+cd plugins/NASA-AMMOS--MMGIS-Plugins/backend/CopilotMCP
 MMGIS_MCP_TOKEN=<token> node examples/mcp-client.mjs                       # list tools + sessions
 MMGIS_MCP_TOKEN=<token> node examples/mcp-client.mjs toggle_layer '{"name":"SWOT freeboard","visible":true}'
 MMGIS_MCP_TOKEN=<token> node examples/mcp-client.mjs copilot_raster_statistics '{"mission":"frozon","layer_name":"SWOT freeboard","region":"Beaufort Sea"}'
@@ -247,9 +236,9 @@ and the shared AgentChat helpers:
 npm run test:plugins:unit
 # or only this feature
 npx cross-env PLAYWRIGHT_TEST_UNIT_ONLY=true npx playwright test \
-  plugins/midatm1234--MMGIS-Plugins/backend/CopilotMCP/tests \
-  plugins/midatm1234--MMGIS-Plugins/components/CopilotMCPBridge/tests \
-  plugins/midatm1234--MMGIS-Plugins/tools/AgentChat/tests --grep @unit
+  plugins/NASA-AMMOS--MMGIS-Plugins/backend/CopilotMCP/tests \
+  plugins/NASA-AMMOS--MMGIS-Plugins/components/CopilotMCPBridge/tests \
+  plugins/NASA-AMMOS--MMGIS-Plugins/tools/AgentChat/tests --grep @unit
 ```
 
 Live end-to-end verification against a running MMGIS with `WITH_COPILOT_MCP=true` and the
@@ -264,7 +253,7 @@ COPILOT_MCP_LIVE=1 PLAYWRIGHT_TEST_UNIT_ONLY=true \
 MMGIS_USER=<user> MMGIS_PASSWORD=<password> MMGIS_MCP_TOKEN=<token of that user> \
 MMGIS_USER2=<second non-admin user> MMGIS_PASSWORD2=<password> \
 COPILOT_MCP_LIVE_REPORT=/tmp/copilot-mcp-live.json \
-npx playwright test plugins/midatm1234--MMGIS-Plugins/backend/CopilotMCP/tests/live.spec.js --workers=1
+npx playwright test plugins/NASA-AMMOS--MMGIS-Plugins/backend/CopilotMCP/tests/live.spec.js --workers=1
 ```
 
 (`PLAYWRIGHT_TEST_UNIT_ONLY=true` skips MMGIS's global test setup, which would otherwise start

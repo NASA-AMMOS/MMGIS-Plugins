@@ -161,13 +161,14 @@ test.describe('Copilot MCP over HTTP @unit', () => {
             expect(structured(noSession).error.code).toBe('NO_BROWSER_SESSION')
             expect(page.executed).toEqual([])
 
-            const bobPage = new FakePage(baseUrl, { token: 'tok-bob', httpSession: 'http-bob', mission: 'Reference-Mission' })
+            // s.authorize('mission.view', mission from the body) refuses the registration.
+            const bobPage = new FakePage(baseUrl, { user: 'bob', mission: 'Reference-Mission' })
             const denied = await bobPage.register()
             expect(denied.status).toBe(403)
-            expect(denied.body).toMatchObject({ status: 'failure', code: 'MISSION_FORBIDDEN' })
+            expect(denied.body).toMatchObject({ status: 'failure' })
 
             // Bridge requests must come from the session's own login.
-            const hijack = new FakePage(baseUrl, { token: 'tok-bob', httpSession: 'http-bob' })
+            const hijack = new FakePage(baseUrl, { user: 'bob' })
             hijack.session = page.session
             expect((await hijack.call('GET', `bridge/poll?session_id=${page.id}`, undefined, hijack.secretHeader())).status).toBe(403)
             const wrongSecret = await page.call('GET', `bridge/poll?session_id=${page.id}`, undefined, { 'X-Copilot-MCP-Secret': 'x'.repeat(64) })
@@ -242,8 +243,14 @@ test.describe('Copilot MCP over HTTP @unit', () => {
         expect(anonymous.status).toBe(401)
         expect(anonymous.json).toMatchObject({ jsonrpc: '2.0', id: 1, error: { code: -32001 } })
 
-        const guest = await rawRequest(baseUrl, { body: list, headers: { authorization: 'Bearer tok-guest' } })
-        expect(guest.status).toBe(401)
+        const revoked = await rawRequest(baseUrl, { body: list, headers: { authorization: 'Bearer tok-revoked' } })
+        expect(revoked.status).toBe(401)
+        expect(revoked.json.error.message).toContain('invalid, expired or revoked')
+        expect(revoked.headers['www-authenticate']).toContain('invalid_token')
+
+        // A signed-in browser session (cookie) may use the endpoint too.
+        const viaSession = await rawRequest(baseUrl, { body: list, headers: { 'x-test-user': 'alice', 'x-test-session': 'http-alice' } })
+        expect(viaSession.status).toBe(200)
 
         const rebound = await rawRequest(baseUrl, { body: list, headers: { authorization: 'Bearer tok-alice', host: 'attacker.example' } })
         expect(rebound.status).toBe(403)
@@ -257,5 +264,64 @@ test.describe('Copilot MCP over HTTP @unit', () => {
 
         const status = await rawRequest(baseUrl, { method: 'GET', path: '/api/copilot-mcp/status', headers: { authorization: 'Bearer tok-alice' } })
         expect(status.json).toMatchObject({ status: 'success', enabled: true, loggedIn: true, user: 'alice' })
+        const anonymousStatus = await rawRequest(baseUrl, { method: 'GET', path: '/api/copilot-mcp/status' })
+        expect(anonymousStatus.json).toMatchObject({ status: 'success', enabled: true, loggedIn: false, user: null })
+        const anonymousRegister = await rawRequest(baseUrl, { path: '/api/copilot-mcp/bridge/register', body: { mission: 'frozon' } })
+        expect(anonymousRegister.status).toBe(401)
+    })
+
+    test('every route declares its permission with s.authorize and is registered with s.registerRouter', () => {
+        const routes = mmgis.routes()
+        const byPath = Object.fromEntries(routes.map((r) => [`${r.methods.join(',').toUpperCase()} ${r.path}`, r.capability]))
+        expect(byPath).toEqual({
+            'POST /api/copilot-mcp/mcp/': 'site.view',
+            'GET /api/copilot-mcp/mcp/': 'public',
+            'DELETE /api/copilot-mcp/mcp/': 'public',
+            'GET /api/copilot-mcp/status': 'site.view',
+            'POST /api/copilot-mcp/bridge/register': 'mission.view',
+            'GET /api/copilot-mcp/bridge/poll': 'mission.view',
+            'POST /api/copilot-mcp/bridge/ack': 'mission.view',
+            'POST /api/copilot-mcp/bridge/result': 'mission.view',
+            'POST /api/copilot-mcp/bridge/unregister': 'mission.view',
+        })
+    })
+
+    test("a long-term token's scopes and missions limit what it can do, including in the user's browser sessions", async () => {
+        const frozonView = await connectClient(baseUrl, 'tok-alice-frozon-view')
+        const referenceRead = await connectClient(baseUrl, 'tok-alice-reference-read')
+        const frozon = new FakePage(baseUrl, { mission: 'frozon' })
+        const reference = new FakePage(baseUrl, { mission: 'Reference-Mission' })
+        await frozon.register()
+        await reference.register()
+        frozon.start()
+        reference.start()
+        try {
+            // Only the token's missions are listed, even though alice can view both.
+            const listed = structured(await frozonView.callTool({ name: 'mmgis_list_sessions', arguments: {} }))
+            expect(listed.viewable_missions).toEqual(['frozon'])
+            expect(listed.sessions.map((s) => s.mission)).toEqual(['frozon'])
+
+            // A token limited to another mission cannot reach that mission's session or data.
+            const otherMission = await frozonView.callTool({ name: 'toggle_layer', arguments: { name: 'SWOT freeboard', visible: true, session_id: reference.id } })
+            expect(structured(otherMission).error.code).toBe('MISSION_FORBIDDEN')
+            const otherData = await frozonView.callTool({ name: 'copilot_raster_statistics', arguments: { mission: 'Reference-Mission', layer_name: 'x' } })
+            expect(structured(otherData).error.code).toBe('MISSION_FORBIDDEN')
+
+            // mission.view alone does not let a token drive a page that reads the mission's data.
+            const viewOnly = await frozonView.callTool({ name: 'toggle_layer', arguments: { name: 'SWOT freeboard', visible: true, mission: 'frozon' } })
+            expect(structured(viewOnly).error.code).toBe('MISSION_FORBIDDEN')
+            expect(structured(viewOnly).error.message).toContain('data.stac.read')
+
+            // A read token for Reference-Mission drives that mission's session only.
+            const allowed = await referenceRead.callTool({ name: 'zoom_to', arguments: { bbox: [-170, 65, -130, 80], mission: 'Reference-Mission' } })
+            expect(structured(allowed)).toMatchObject({ status: 'succeeded', session_id: reference.id })
+            expect(frozon.executed).toEqual([])
+            expect(reference.executed.map((c) => c.tool)).toEqual(['zoom_to'])
+        } finally {
+            await frozon.stop()
+            await reference.stop()
+            await frozonView.close()
+            await referenceRead.close()
+        }
     })
 })

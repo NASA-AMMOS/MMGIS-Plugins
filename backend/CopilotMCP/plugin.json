@@ -29,7 +29,12 @@
     "COPILOT_MCP_LIVENESS_GRACE_MS": "(number) Close a browser session with no open poll, no running command and no request for this long, in ms [default 20000]",
     "COPILOT_MCP_MAX_SESSIONS_PER_USER": "(number) Browser sessions kept per user [default 10]"
   },
-  "dependencies": {},
+  "dependencies": {
+    "npm": {
+      "@modelcontextprotocol/sdk": "1.32.2"
+    }
+  },
+  "pluginDependencies": ["NASA-AMMOS--MMGIS-Plugins/backend/Agent"],
   "author": "midatm1234",
   "license": "Apache-2.0",
   "repository": "https://github.com/midatm1234/MMGIS-Plugins"

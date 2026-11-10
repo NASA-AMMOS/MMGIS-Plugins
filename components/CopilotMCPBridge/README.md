@@ -6,8 +6,9 @@ and the user is logged in, this component registers the page as a browser sessio
 mission. It then runs the MCP commands sent to that session with the AgentChat Copilot's
 own handlers, and reports the verified resulting map state.
 
-* Enable it per mission (Configure → Components → CopilotMCPBridge). The mission also
-  needs the AgentChat tool.
+* Enable it per mission (Configure → Components → **MMGIS MCP Bridge**, the manifest's
+  `display_name`). The mission also needs the AgentChat tool; the manifest declares it and
+  the CopilotMCP backend in `pluginDependencies`.
 * Variables: `autoConnect` (default true), `showIndicator` (default true; the `MCP · …`
   indicator shows the state, and clicking it pauses or resumes MCP control of this page),
   `mirrorToCopilotPanel` (default false; when true, MCP output is also written into the chat

@@ -1,49 +1,143 @@
 // Test harness for the Copilot MCP plugin: an Express app with stand-ins for
-// MMGIS's auth middleware and the Agent plugin's HTTP API, the real CopilotMCP
-// routes mounted on it, simulated CopilotMCPBridge pages and MCP SDK clients.
+// MMGIS's permission API (ensurePrincipal, authorize, resolvers, can,
+// missionNamesWith, registerRouter) and the Agent plugin's HTTP API, the real
+// CopilotMCP routes mounted on it, simulated CopilotMCPBridge pages and MCP
+// SDK clients.
 
 const path = require('path')
 const http = require('http')
-const { requireFromMmgis } = require('../../lib/host')
+const express = require('express')
 const { loadConfig } = require('../../lib/config')
 const { mountCopilotMcp } = require('../../lib/mount')
 const { loadFileRegistry } = require('../../lib/registry')
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js')
 const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js')
 
-const express = requireFromMmgis('express')
 // Same Ajv (version and options) as the Agent plugin's registryManager.
 const Ajv = require(require.resolve('ajv', { paths: [path.join(__dirname, '..', '..', '..', 'Agent')] }))
 
-const TOKENS = { 'tok-alice': 'alice', 'tok-bob': 'bob', 'tok-guest': 'guest' }
-const VIEWABLE = { alice: ['frozon', 'Reference-Mission'], bob: ['frozon'], guest: [] }
+// Long-term tokens. scopes/missions follow MMGIS: null = everything the
+// creator holds; an array limits the token.
+const TOKENS = {
+    'tok-alice': { user: 'alice' },
+    'tok-bob': { user: 'bob' },
+    'tok-alice-frozon-view': { user: 'alice', scopes: ['site.view', 'mission.view'], missions: ['frozon'] },
+    'tok-alice-reference-read': {
+        user: 'alice',
+        scopes: ['site.view', 'mission.view', 'data.geodatasets.read', 'data.datasets.read', 'data.stac.read'],
+        missions: ['Reference-Mission'],
+    },
+}
+const VIEWABLE = { alice: ['frozon', 'Reference-Mission'], bob: ['frozon'] }
+const MISSIONS = ['frozon', 'Reference-Mission', 'Secret-Mission']
+const READ_CAPS = ['site.view', 'mission.view', 'data.geodatasets.read', 'data.datasets.read', 'data.stac.read']
 
-function authenticate(req) {
-    const m = /^Bearer (.+)$/.exec(req.headers.authorization || '')
-    if (m && TOKENS[m[1]]) {
-        req.user = TOKENS[m[1]]
-        req.isLongTermToken = true
-    }
+// req.principal as MMGIS resolves it: a token, a session user ("x-test-user",
+// with "x-test-session" as the Express session id) or an anonymous guest.
+function resolvePrincipal(req) {
     req.sessionID = req.headers['x-test-session'] || null
+    const m = /^Bearer (.+)$/.exec(req.headers.authorization || '')
+    if (m) {
+        const t = TOKENS[m[1]]
+        if (!t) return { kind: 'invalid_token', authenticated: false }
+        return { kind: 'token', authenticated: true, username: t.user, token: { scopes: t.scopes || null, missions: t.missions || null } }
+    }
+    const user = req.headers['x-test-user']
+    if (user) return { kind: 'user', authenticated: true, username: user }
+    return { kind: 'anonymous', authenticated: false, username: null }
+}
+
+// The rules of MMGIS's policy.can() that these tests rely on.
+function can(principal, cap, resource) {
+    if (!principal || principal.kind === 'invalid_token') return false
+    if (!principal.authenticated) return cap === 'site.view'
+    const token = principal.token
+    if (token && Array.isArray(token.scopes) && !token.scopes.includes(cap)) return false
+    const mission = resource && resource.missionName
+    if (token && Array.isArray(token.missions) && mission && !token.missions.includes(mission)) return false
+    if (!READ_CAPS.includes(cap)) return false
+    if (cap === 'mission.view') return !!mission && (VIEWABLE[principal.username] || []).includes(mission)
+    return true
+}
+
+function createPermissionApi() {
+    const ensurePrincipal = (req) => Promise.resolve(req.principal || (req.principal = resolvePrincipal(req)))
+    const declared = []
+    const tag = (mw, access) => Object.assign(mw, { __access: access })
+    function authorize(cap, resolver) {
+        const mw = async (req, res, next) => {
+            const principal = await ensurePrincipal(req)
+            if (principal.kind === 'invalid_token') return res.status(403).send({ status: 'failure', message: 'Unauthorized Token!' })
+            const resource = resolver ? await resolver(req) : undefined
+            if (resource === null || !can(principal, cap, resource || null)) return res.status(403).send({ status: 'failure', message: 'Unauthorized' })
+            req.access = { capability: cap, resource }
+            next()
+        }
+        return tag(mw, { capability: cap, resolver: resolver ? resolver.description || 'custom' : '-' })
+    }
+    authorize.public = (reason) => tag((req, res, next) => next(), { capability: 'public', resolver: reason })
+    authorize.inHandler = (cap, reason) => tag(authorize(cap), { capability: cap, resolver: `in handler: ${reason}` })
+    const resolvers = {
+        mission(pick) {
+            const fn = async (req) => {
+                const name = typeof pick === 'function' ? pick(req) : undefined
+                return typeof name === 'string' && MISSIONS.includes(name) ? { mission: `uuid-${name}`, missionName: name } : null
+            }
+            fn.description = 'mission(fn)'
+            return fn
+        },
+    }
+    return {
+        ensurePrincipal,
+        authorize,
+        resolvers,
+        can: async (req, cap, resource) => can(await ensurePrincipal(req), cap, resource),
+        missionNamesWith: async (req, cap) => {
+            const principal = await ensurePrincipal(req)
+            return MISSIONS.filter((name) => can(principal, cap, { mission: `uuid-${name}`, missionName: name }))
+        },
+        registerRouter: (prefix, router) => {
+            declared.push({ prefix, router })
+            return router
+        },
+        declared,
+    }
+}
+
+// Every route of every registered router, with its declared permission.
+function routeTable(declared) {
+    const rows = []
+    for (const { prefix, router } of declared) {
+        for (const layer of router.stack || []) {
+            if (!layer.route) continue
+            const access = (layer.route.stack || []).map((l) => l.handle && l.handle.__access).filter(Boolean)
+            rows.push({
+                path: prefix + layer.route.path,
+                methods: Object.keys(layer.route.methods),
+                capability: access.map((a) => a.capability).join(' + ') || null,
+            })
+        }
+    }
+    return rows
 }
 
 function createFakeMmgis(cfgOverrides = {}) {
     const app = express()
     app.use(express.json({ limit: '5mb' }))
+    const permissions = createPermissionApi()
     const s = {
         app,
         ROOT_PATH: '',
-        ensureUser: () => (req, res, next) => {
-            authenticate(req)
-            if (!req.user) return res.send({ status: 'failure', message: 'User is not logged in.' })
-            next()
-        },
-        stopGuests: (req, res, next) => {
-            if (req.user === 'guest') return res.send({ status: 'failure', message: 'Guests may not use this endpoint.' })
-            next()
-        },
+        ...permissions,
         checkHeadersCodeInjection: (req, res, next) => next(),
         setContentType: (req, res, next) => next(),
+    }
+    // Stand-in for the signed-in gate in front of the Agent plugin's /api/agent routes.
+    const signedIn = async (req, res, next) => {
+        const principal = await permissions.ensurePrincipal(req)
+        if (!principal.authenticated) return res.send({ status: 'failure', message: 'User is not logged in.' })
+        req.user = principal.username
+        next()
     }
 
     const registry = loadFileRegistry()
@@ -55,12 +149,11 @@ function createFakeMmgis(cfgOverrides = {}) {
     app.locals.agentToolValidators = validators
 
     const upstream = { plannerRequests: [], requests: [] }
-    const gate = [s.ensureUser(), s.stopGuests]
+    const gate = [signedIn]
     app.use((req, _res, next) => {
         upstream.requests.push({ method: req.method, url: req.originalUrl, authorization: req.headers.authorization || null })
         next()
     })
-    app.get('/api/configure/missions', s.ensureUser(), (req, res) => res.json({ status: 'success', missions: VIEWABLE[req.user] || [] }))
     app.get('/api/agent/tools', gate, (_req, res) => res.json({ tools: registry.tools }))
     app.get('/api/agent/copilot/demo-queries', gate, (_req, res) => res.json({ queries: ['What layers are available in this mission?', 'Zoom to the Arctic region'] }))
     app.get('/api/agent/regions/resolve', gate, (req, res) => {
@@ -100,6 +193,7 @@ function createFakeMmgis(cfgOverrides = {}) {
         app,
         cfg,
         mounted,
+        routes: () => routeTable(permissions.declared),
         upstream,
         async start() {
             await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -150,8 +244,9 @@ function defaultHandler(page) {
 // A simulated MMGIS page running the bridge protocol: register, long-poll,
 // acknowledge, execute, report.
 class FakePage {
-    constructor(baseUrl, { token = 'tok-alice', mission = 'frozon', httpSession = 'http-alice', handler = null, ack = true } = {}) {
-        Object.assign(this, { baseUrl, token, mission, httpSession, ack })
+    // A logged-in MMGIS page: an Express session of `user`.
+    constructor(baseUrl, { user = 'alice', mission = 'frozon', httpSession = null, handler = null, ack = true } = {}) {
+        Object.assign(this, { baseUrl, user, mission, httpSession: httpSession || `http-${user}`, ack })
         this.handler = handler || defaultHandler(this)
         this.executed = []
         this.received = []
@@ -161,7 +256,7 @@ class FakePage {
     }
 
     headers(extra = {}) {
-        return { Authorization: `Bearer ${this.token}`, 'x-test-session': this.httpSession, 'Content-Type': 'application/json', ...extra }
+        return { 'x-test-user': this.user, 'x-test-session': this.httpSession, 'Content-Type': 'application/json', ...extra }
     }
 
     async call(method, route, body, extraHeaders = {}, signal = undefined) {

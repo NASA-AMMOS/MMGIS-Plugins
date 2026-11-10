@@ -1,9 +1,7 @@
 // Request gating for the Copilot MCP routes: loopback-only by default,
-// DNS-rebinding checks, JSON-RPC-friendly wrappers around MMGIS's own auth
-// middleware, caller identity, and mission viewing permission (delegated to
-// MMGIS's /api/configure/missions, which applies core's permission rules).
+// DNS-rebinding checks, the signed-in requirement, caller identity, and
+// mission viewing permission through MMGIS's s.resolvers / s.can.
 
-const crypto = require("crypto");
 const { CopilotMcpError, ERROR_CODES } = require("./results");
 
 function isLoopbackAddress(addr) {
@@ -53,112 +51,95 @@ function localOnly(cfg, { jsonRpc = false } = {}) {
   };
 }
 
-// Runs an MMGIS auth middleware (ensureUser, stopGuests, …). Those gates
-// answer with HTTP 200 + { status: "failure" } or render a login page; MCP
-// clients need a JSON-RPC error with HTTP 401 instead.
-function jsonRpcGate(middleware) {
+// MCP and bridge callers must be signed in (a session or a long-term token):
+// browser sessions belong to an MMGIS user. Runs before s.authorize so that
+// MCP clients get an HTTP 401 JSON-RPC error instead of a plain 403.
+function requireSignedIn(s, { jsonRpc = false } = {}) {
   return (req, res, next) => {
-    const original = { send: res.send, render: res.render, end: res.end };
-    let settled = false;
-    const restore = () => {
-      res.send = original.send;
-      res.render = original.render;
-      res.end = original.end;
-    };
-    const fail = (detail) => {
-      if (settled) return res;
-      settled = true;
-      restore();
-      res.status(401);
-      res.set("WWW-Authenticate", 'Bearer realm="MMGIS", error="invalid_token"');
-      res.json(
-        jsonRpcErrorBody(
-          req,
-          -32001,
-          `MMGIS authentication failed${detail ? `: ${detail}` : ""}. Send "Authorization: Bearer <MMGIS long-term token>" (create one in Configure → API Tokens).`
-        )
-      );
-      res.send = () => res;
-      res.render = () => res;
-      res.end = () => res;
-      return res;
-    };
-    res.send = (body) => {
-      let detail = "";
-      if (body && typeof body === "object" && body.message) detail = body.message;
-      else if (typeof body === "string") {
-        try {
-          detail = JSON.parse(body).message || "";
-        } catch (_) {
-          detail = "";
-        }
-      }
-      return fail(detail);
-    };
-    res.render = () => fail("login required");
-    try {
-      middleware(req, res, (err) => {
-        if (settled) return;
-        settled = true;
-        restore();
-        next(err);
-      });
-    } catch (err) {
-      if (!settled) {
-        settled = true;
-        restore();
-        next(err);
-      }
-    }
+    s.ensurePrincipal(req)
+      .then((principal) => {
+        if (principal && principal.authenticated) return next();
+        const invalid = !!principal && principal.kind === "invalid_token";
+        const message = invalid
+          ? "The long-term token is invalid, expired or revoked."
+          : 'Sign in to MMGIS or send "Authorization: Bearer <MMGIS long-term token>" (create one in Configure → API Tokens).';
+        res.status(401);
+        if (!jsonRpc) return res.json({ status: "failure", message });
+        res.set("WWW-Authenticate", `Bearer realm="MMGIS"${invalid ? ', error="invalid_token"' : ""}`);
+        return res.json(jsonRpcErrorBody(req, -32001, `MMGIS authentication failed. ${message}`));
+      })
+      .catch(next);
   };
 }
 
 function getCaller(req) {
   return {
-    username: typeof req.user === "string" ? req.user : null,
-    viaToken: !!req.isLongTermToken,
+    req,
+    username: (req.principal && req.principal.username) || null,
+    viaToken: !!(req.principal && req.principal.kind === "token"),
     httpSessionId: req.sessionID || null,
     headers: { authorization: req.headers.authorization, cookie: req.headers.cookie },
   };
 }
 
-// Mission viewing permission, decided by MMGIS itself for this caller.
-function createMissionAccess(loopback, { ttlMs = 30000 } = {}) {
-  const cache = new Map();
-  const keyFor = (caller) =>
-    crypto
-      .createHash("sha256")
-      .update(`${caller.username}|${caller.headers.authorization || ""}|${caller.headers.cookie || ""}`)
-      .digest("hex");
+// What a browser session can do on its caller's behalf. The page runs with
+// the browser's own login, so an MCP caller may only drive it when the caller
+// itself (for a long-term token: the token's scopes and mission limits) holds
+// every capability the page uses: viewing the mission and reading its data.
+const BROWSER_SESSION_CAPABILITIES = Object.freeze([
+  "mission.view",
+  "data.geodatasets.read",
+  "data.datasets.read",
+  "data.stac.read",
+]);
 
-  async function viewableMissions(caller) {
-    const key = keyFor(caller);
-    const hit = cache.get(key);
-    if (hit && Date.now() - hit.at < ttlMs) return hit.missions;
-    const res = await loopback.request("GET", "/api/configure/missions", { caller });
-    const body = loopback.unwrap(res, "Mission list");
-    const missions = Array.isArray(body && body.missions) ? body.missions : [];
-    cache.set(key, { at: Date.now(), missions });
-    if (cache.size > 500) cache.delete(cache.keys().next().value);
-    return missions;
+// Mission permissions, decided by MMGIS's own permission API (s.resolvers,
+// s.can, s.missionNamesWith) for the request's principal.
+function createMissionAccess(s) {
+  async function resourceFor(caller, mission) {
+    if (typeof mission !== "string" || mission === "") return null;
+    return s.resolvers.mission(() => mission)(caller.req);
+  }
+
+  async function holdsAll(caller, mission, capabilities) {
+    const resource = await resourceFor(caller, mission);
+    if (!resource) return false;
+    for (const cap of capabilities) {
+      if (!(await s.can(caller.req, cap, resource))) return false;
+    }
+    return true;
+  }
+
+  // Mission names the caller may view; null = every mission.
+  function viewableMissions(caller) {
+    return s.missionNamesWith(caller.req, "mission.view");
   }
 
   async function assertCanView(caller, mission) {
-    const missions = await viewableMissions(caller);
-    if (!missions.includes(mission)) {
-      throw new CopilotMcpError(ERROR_CODES.MISSION_FORBIDDEN, `Mission '${mission}' does not exist or this user may not view it.`);
+    if (!(await holdsAll(caller, mission, ["mission.view"]))) {
+      throw new CopilotMcpError(ERROR_CODES.MISSION_FORBIDDEN, `Mission '${mission}' does not exist or this caller may not view it.`);
     }
   }
 
-  return { viewableMissions, assertCanView };
+  async function assertCanDriveSession(caller, mission) {
+    if (!(await holdsAll(caller, mission, BROWSER_SESSION_CAPABILITIES))) {
+      throw new CopilotMcpError(
+        ERROR_CODES.MISSION_FORBIDDEN,
+        `This caller may not use browser sessions of mission '${mission}': it needs ${BROWSER_SESSION_CAPABILITIES.join(", ")} on that mission (check the long-term token's scopes and missions).`
+      );
+    }
+  }
+
+  return { viewableMissions, assertCanView, assertCanDriveSession };
 }
 
 module.exports = {
   isLoopbackAddress,
   requestIsLocal,
   localOnly,
-  jsonRpcGate,
+  requireSignedIn,
   jsonRpcErrorBody,
   getCaller,
+  BROWSER_SESSION_CAPABILITIES,
   createMissionAccess,
 };

@@ -91,7 +91,9 @@ function createCatalog(ctx) {
   async function resolveSession(caller, routing, { required = true } = {}) {
     try {
       const session = sessions.select({ owner: caller.username, mission: routing.mission, sessionId: routing.sessionId });
-      await missionAccess.assertCanView(caller, session.mission);
+      // The page acts with the browser's login; the caller (for a token: its
+      // scopes and missions) must hold what the page uses on that mission.
+      await missionAccess.assertCanDriveSession(caller, session.mission);
       return session;
     } catch (err) {
       if (!required && err.code === ERROR_CODES.NO_BROWSER_SESSION) return null;
@@ -381,13 +383,15 @@ function createCatalog(ctx) {
       inputSchema: obj({ mission }),
       annotations: { title: "List browser sessions", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: async (args, caller) => {
-        const missions = await missionAccess.viewableMissions(caller);
-        const list = sessions.list({ owner: caller.username, mission: args.mission || null }).filter((s) => missions.includes(s.mission));
+        const missions = await missionAccess.viewableMissions(caller); // null = every mission
+        const list = sessions
+          .list({ owner: caller.username, mission: args.mission || null })
+          .filter((s) => missions == null || missions.includes(s.mission));
         return toolSuccess({
           status: "succeeded",
           user: caller.username,
           copilot_backend: getRegistry(app).available ? "available" : "unavailable",
-          viewable_missions: missions,
+          viewable_missions: missions == null ? "all" : missions,
           sessions: list,
         });
       },

@@ -3,11 +3,14 @@
 // acknowledges the ones it received (it runs only acknowledged commands) and
 // posts back what it executed. Every request must come from the session's own
 // login (same MMGIS user and Express session) and carry the session secret.
+//
+// Permissions (s.authorize): /status needs site.view; /bridge/register needs
+// mission.view on the mission it registers; the other bridge routes need
+// mission.view on the mission of the session they name.
 
-const { requireFromMmgis } = require("../lib/host");
-const express = requireFromMmgis("express");
+const express = require("express");
 const { CopilotMcpError, ERROR_CODES, sanitize } = require("../lib/results");
-const { getCaller } = require("../lib/access");
+const { getCaller, requireSignedIn } = require("../lib/access");
 
 const SECRET_HEADER = "x-copilot-mcp-secret";
 const MAX_RESULT_BYTES = 2 * 1024 * 1024;
@@ -32,21 +35,46 @@ function sendError(res, err) {
   res.status(statusFor(err)).json({ status: "failure", code, message: (err && err.message) || "Bridge error" });
 }
 
-function createBridgeRouter({ cfg, sessions, missionAccess }) {
+const PLUGIN_VERSION = require("../plugin.json").version;
+
+function createBridgeRouter({ s, cfg, sessions }) {
   const router = express.Router();
+  const { authorize, resolvers } = s;
+  const signedIn = requireSignedIn(s);
+
+  // The mission of the browser session a bridge request names; null (403)
+  // when there is no such session. The secret is checked in the handler.
+  const sessionIdOf = (req) => (req.method === "GET" ? req.query.session_id : req.body && req.body.session_id);
+  const sessionMission = async (req) => {
+    const session = sessions.sessions.get(String(sessionIdOf(req) || ""));
+    return session ? resolvers.mission(() => session.mission)(req) : null;
+  };
+  sessionMission.description = "mission of the named browser session";
+  const viewSessionMission = authorize("mission.view", sessionMission);
+
+  router.get("/status", authorize("site.view"), (req, res) => {
+    const caller = getCaller(req);
+    res.json({
+      status: "success",
+      enabled: true,
+      version: PLUGIN_VERSION,
+      loggedIn: !!(req.principal && req.principal.authenticated),
+      user: caller.username,
+      pollTimeoutMs: cfg.pollTimeoutMs,
+    });
+  });
 
   function authenticate(req) {
     const caller = getCaller(req);
-    const sessionId = (req.method === "GET" ? req.query.session_id : req.body && req.body.session_id) || "";
-    return sessions.authenticate(sessionId, req.get(SECRET_HEADER), { owner: caller.username, httpSessionId: caller.httpSessionId });
+    return sessions.authenticate(sessionIdOf(req) || "", req.get(SECRET_HEADER), { owner: caller.username, httpSessionId: caller.httpSessionId });
   }
 
-  router.post("/register", async (req, res) => {
+  const missionFromBody = (req) => (req.body && typeof req.body.mission === "string" ? req.body.mission.trim() : "");
+  router.post("/bridge/register", signedIn, authorize("mission.view", resolvers.mission(missionFromBody)), async (req, res) => {
     try {
       const caller = getCaller(req);
-      const mission = req.body && typeof req.body.mission === "string" ? req.body.mission.trim() : "";
+      const mission = missionFromBody(req);
       if (!mission || mission.length > 256) throw new CopilotMcpError(ERROR_CODES.INVALID_INPUT, "A mission name is required.");
-      await missionAccess.assertCanView(caller, mission);
       const { session, secret } = sessions.register({
         owner: caller.username,
         mission,
@@ -63,7 +91,7 @@ function createBridgeRouter({ cfg, sessions, missionAccess }) {
     }
   });
 
-  router.get("/poll", async (req, res) => {
+  router.get("/bridge/poll", signedIn, viewSessionMission, async (req, res) => {
     let session;
     try {
       session = authenticate(req);
@@ -82,7 +110,7 @@ function createBridgeRouter({ cfg, sessions, missionAccess }) {
     res.json({ status: "success", commands });
   });
 
-  router.post("/ack", (req, res) => {
+  router.post("/bridge/ack", signedIn, viewSessionMission, (req, res) => {
     try {
       const session = authenticate(req);
       const ids = req.body && Array.isArray(req.body.command_ids) ? req.body.command_ids : [];
@@ -92,7 +120,7 @@ function createBridgeRouter({ cfg, sessions, missionAccess }) {
     }
   });
 
-  router.post("/result", (req, res) => {
+  router.post("/bridge/result", signedIn, viewSessionMission, (req, res) => {
     try {
       const session = authenticate(req);
       const body = req.body || {};
@@ -112,7 +140,7 @@ function createBridgeRouter({ cfg, sessions, missionAccess }) {
     }
   });
 
-  router.post("/unregister", (req, res) => {
+  router.post("/bridge/unregister", signedIn, viewSessionMission, (req, res) => {
     try {
       const session = authenticate(req);
       sessions.unregister(session, "browser_closed");
