@@ -981,10 +981,67 @@ export async function render_layers_line() {
     if (!items.length) {
         throw new Error('No layers available to list.')
     }
-    const summaryLines = items.map(
-        (item) => `- ${item.displayName} (${item.visible ? 'on' : 'off'})`
+    // Header entries are folders, not data layers.
+    const layerItems = items.filter((item) => item.config?.type !== 'header')
+    const rows = await Promise.all(
+        layerItems.map(async (item) => ({
+            item,
+            coverage: await describeLayerTemporalCoverage(item),
+        }))
     )
-    appendLine(`Layers:\n${summaryLines.join('\n')}`)
+    const summaryLines = rows.map(
+        ({ item, coverage }) =>
+            `- ${item.displayName} (${item.visible ? 'on' : 'off'}): ${coverage.text}`
+    )
+    appendLine(
+        `All available layers (${rows.length}), with temporal coverage:\n${summaryLines.join('\n')}`
+    )
+    return {
+        layers: rows.map(({ item, coverage }) => ({
+            id: item.id,
+            name: item.displayName,
+            visible: item.visible,
+            time_start: coverage.start,
+            time_end: coverage.end,
+        })),
+    }
+}
+
+// Best-effort temporal coverage for a layer: analytics catalog first, then the
+// layer's own time settings. Never throws; layers without time say so.
+async function describeLayerTemporalCoverage(item) {
+    const config = item.config || {}
+    const liveOptions = item.liveInstance?.options || {}
+    const clean = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+    let start = null
+    let end = null
+    try {
+        const base = determineAnalyticsEndpoint({ layer: item }, null)
+        if (base) {
+            const match = await resolveAnalyticsLayerKey(
+                item.name,
+                config,
+                base
+            )
+            start = clean(match?.info?.time_range?.start)
+            end = clean(match?.info?.time_range?.end)
+        }
+    } catch (_) {
+        // Catalog unavailable: fall through to the layer's own settings.
+    }
+    start = start || clean(liveOptions.starttime) || clean(config.time?.start)
+    end = end || clean(liveOptions.endtime) || clean(config.time?.end)
+    if (start || end) {
+        return { start, end, text: `${start || '?'} to ${end || '?'}` }
+    }
+    if (config.time?.enabled) {
+        return {
+            start: null,
+            end: null,
+            text: 'time-enabled (range not published)',
+        }
+    }
+    return { start: null, end: null, text: 'no time dimension' }
 }
 
 export async function render_text_with_citation(_ctx, payload) {
@@ -1271,12 +1328,13 @@ async function executeVisibleLayersTimeChange(payload) {
             .join('; ')
         lines.push(`Skipped: ${skippedNotes}`)
     }
-    return { ok: updates.length > 0, lines }
+    return { ok: updates.length > 0, lines, updates, skipped }
 }
 
 export async function set_visible_layers_time(_ctx, payload) {
     const result = await executeVisibleLayersTimeChange(payload)
     if (result.lines.length) appendLine(result.lines.join('\n'))
+    return result
 }
 
 export async function fast_visible_layers_time(payload) {
@@ -1295,6 +1353,7 @@ export async function set_opacity(_ctx, payload) {
     }
     L_.setLayerOpacity(id, opacity)
     appendLine(`Opacity set: ${dn} ${opacity}`)
+    return { id, name: dn, opacity }
 }
 
 export async function toggle_visibility(_ctx, payload) {
@@ -1308,6 +1367,7 @@ export async function toggle_visibility(_ctx, payload) {
     }
     await window.mmgisAPI.toggleLayer(id, payload.visible)
     appendLine(`Toggled: ${dn} -> ${payload.visible ? 'on' : 'off'}`)
+    return { id, name: dn, visible: payload.visible }
 }
 
 export async function zoom_view(_ctx, payload) {
@@ -1319,7 +1379,7 @@ export async function zoom_view(_ctx, payload) {
         }
         map.setView([lat, lon], payload.zoom)
         appendLine(`Zoomed to center (${lon}, ${lat}) @ z${payload.zoom}`)
-        return
+        return { center: [lon, lat], zoom: payload.zoom }
     }
     if (Array.isArray(payload?.bbox) && payload.bbox.length === 4) {
         const [minLon, minLat, maxLon, maxLat] = payload.bbox
@@ -1332,7 +1392,7 @@ export async function zoom_view(_ctx, payload) {
         )
         map.fitBounds(bounds, { padding: [16, 16] })
         appendLine('Zoomed to bounding box')
-        return
+        return { bbox: [minLon, minLat, maxLon, maxLat] }
     }
     throw new Error('Zoom request missing center/zoom or bbox parameters.')
 }
@@ -1353,7 +1413,11 @@ export async function render_layer_information(_ctx, payload) {
             (fallback.reply || `No information available for ${layerName}.`) +
                 (citations ? `\nSources:\n${citations}` : '')
         )
-        return
+        return {
+            source: 'agent_search',
+            reply: fallback.reply || null,
+            citations: fallback.citations,
+        }
     }
     const item = info.items[0]
     const headline = item.name || layerName
@@ -1366,6 +1430,7 @@ export async function render_layer_information(_ctx, payload) {
             item.citation ? `\nSource: ${item.citation}` : ''
         }`
     )
+    return { source: 'layer_info', item, match: info.match }
 }
 
 export async function render_layer_mean(_ctx, payload) {
@@ -1380,7 +1445,11 @@ export async function render_layer_mean(_ctx, payload) {
             `Raster statistics (mean, min, max, etc.) require a locally hosted COG or GeoTIFF layer. ` +
             `You can still view this layer on the map and use the Time UI to browse available dates.`
         )
-        return
+        return {
+            layer: resolvedLayerName,
+            supported: false,
+            reason: 'external_tile_service',
+        }
     }
     drawAreaHighlight(area, 'mean', { color: '#0ea5e9', fillOpacity: 0.18 })
     const timeTokens = getLayerTimeTokens(layerMatch, payload)
@@ -1589,6 +1658,15 @@ export async function render_layer_mean(_ctx, payload) {
     }
 
     appendLine(lines.join('\n'))
+    return {
+        layer: resolvedLayerName,
+        area,
+        stats,
+        quantiles: quantiles?.quantiles || null,
+        timeRange,
+        analyticsKey: datasetKey,
+        source: stats?.source === 'local-cog' ? 'local-cog' : 'server',
+    }
 }
 
 export async function render_local_calculate_mean(_ctx, payload) {
@@ -2013,9 +2091,16 @@ export async function render_layer_difference(_ctx, payload) {
         }
 
         appendLine(lines.join('\n'))
+        return {
+            layer_a: matchA.displayName,
+            layer_b: matchB.displayName,
+            time: currentTimeStr || null,
+            ...data,
+        }
     } catch (error) {
         console.error('Layer difference failed:', error)
         appendLine(`Failed to compute difference: ${error.message}`)
+        return { error: error.message }
     }
 }
 
@@ -2079,13 +2164,13 @@ export async function render_layer_summary(_ctx, payload) {
     const name = payload?.name
     if (!name) {
         appendLine('No layer name provided for summary.')
-        return
+        return { found: false }
     }
     const index = buildLayerIndex()
     const match = findLayerMatch(name, index)
     if (!match) {
         appendLine(`Unable to find layer "${name}" for summary.`)
-        return
+        return { found: false }
     }
     appendLine(`Layer: ${match.displayName}`)
     appendLine(`Type: ${match.type || 'Unknown'}`)
@@ -2100,6 +2185,15 @@ export async function render_layer_summary(_ctx, payload) {
                 2
             )}, ${north.toFixed(2)}`
         )
+    }
+    return {
+        found: true,
+        id: match.id,
+        name: match.displayName,
+        type: match.type || null,
+        visible: !!match.visible,
+        opacity: match.opacity,
+        bbox: match.bbox || null,
     }
 }
 
@@ -2155,7 +2249,7 @@ export async function render_threshold_highlight(_ctx, payload) {
         appendLine(
             `I couldn't find a ${variable} layer to highlight.`
         )
-        return
+        return { found: false, variable }
     }
     const target = candidates[candidates.length - 1]
     const layerName = target.displayName || target.name
@@ -2308,6 +2402,18 @@ export async function render_threshold_highlight(_ctx, payload) {
         payload?.unit ? ' ' + payload.unit : ''
     }`
     appendLine(`${nameText} on ${layerName}`)
+    return {
+        found: true,
+        layer: layerName,
+        variable,
+        requested_operator: operator,
+        operator: op,
+        value,
+        unit: payload?.unit || null,
+        expression: expr,
+        tile_matrix_set: tileMatrixStr,
+        source_url: resolvedSourceUrl,
+    }
 }
 
 export async function highlight_toggle() {
@@ -2315,12 +2421,13 @@ export async function highlight_toggle() {
     const tile = store.highlightTile
     if (!tile) {
         appendLine('No highlight overlay to hide/show.')
-        return
+        return { overlay: false }
     }
     const current = tile.options.opacity ?? 0.2
     const isHidden = current <= 0.001
     const next = isHidden ? store.highlightOpacity ?? 0.2 : 0
     tile.setOpacity(next)
+    return { overlay: true, opacity: next }
 }
 
 export async function highlight_clear() {
@@ -2332,8 +2439,10 @@ export async function highlight_clear() {
             store.highlightTile = null
             appendLine('Cleared highlight overlay.')
         } catch (_) {}
+        return { overlay: true, cleared: store.highlightTile == null }
     } else {
         appendLine('No highlight overlay to clear.')
+        return { overlay: false, cleared: false }
     }
 }
 
@@ -2343,7 +2452,7 @@ export async function highlight_opacity(_ctx, payload) {
     const tile = store.highlightTile
     if (!tile) {
         appendLine('No highlight overlay to adjust.')
-        return
+        return { overlay: false }
     }
     const cur = Number(tile.options.opacity ?? 0.2)
     const next = Math.max(
@@ -2353,6 +2462,7 @@ export async function highlight_opacity(_ctx, payload) {
     store.highlightOpacity = next
     tile.setOpacity(next)
     appendLine(`Highlight opacity set to ${next.toFixed(2)}.`)
+    return { overlay: true, previous: cur, opacity: next }
 }
 
 export async function render_anomaly_detection(_ctx, payload) {
@@ -2457,6 +2567,17 @@ export async function render_anomaly_detection(_ctx, payload) {
     }
     
     appendLine(lines.join('\n'))
+    return {
+        simulated: true,
+        layer: layerName,
+        area,
+        threshold,
+        stats: simulatedStats,
+        zscore_bounds: [lowerBound, upperBound],
+        iqr_bounds: [lowerFence, upperFence],
+        anomalies: anomalies.length,
+        outliers: outliers.length,
+    }
 }
 
 export async function render_multilayer_statistics(_ctx, payload) {
@@ -2486,6 +2607,7 @@ export async function render_multilayer_statistics(_ctx, payload) {
                 fillOpacity: 0.15,
             })
         }
+        return results
 
     } catch (error) {
         appendLine(`Multi-layer analysis failed: ${error?.message || error}`)
@@ -2528,6 +2650,7 @@ export async function render_temporal_trends(_ctx, payload) {
                 dashArray: '6 4',
             })
         }
+        return results
 
     } catch (error) {
         appendLine(`Temporal trend analysis failed: ${error?.message || error}`)
@@ -2569,6 +2692,7 @@ export async function render_spatial_statistics(_ctx, payload) {
                 })
             }
         }
+        return results
 
     } catch (error) {
         appendLine(`Spatial statistics analysis failed: ${error?.message || error}`)
@@ -2612,6 +2736,7 @@ export async function render_change_detection(_ctx, payload) {
                 })
             }
         }
+        return results
 
     } catch (error) {
         appendLine(`Change detection analysis failed: ${error?.message || error}`)
@@ -2723,6 +2848,7 @@ export async function render_time_series_animation(_ctx, payload) {
             results.controls.play()
             appendLine('[PLAYING] Animation started')
         }
+        return results
         
     } catch (error) {
         appendLine(`Time series animation failed: ${error?.message || error}`)
@@ -2758,6 +2884,7 @@ export async function render_data_export(_ctx, payload) {
                 appendLine('[DOWNLOADED] File download initiated')
             }
         }
+        return results
         
     } catch (error) {
         appendLine(`Data export failed: ${error?.message || error}`)

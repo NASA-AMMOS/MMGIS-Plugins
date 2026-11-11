@@ -152,7 +152,7 @@ function buildPrompt(message, context = {}, toolOptions = {}) {
     "- Convert temporal phrases (\"past week\", \"past month\", \"between <date1> and <date2>\") into explicit ISO timestamps using time_start/time_end so the layer can be filtered before rescaling.",
     "- Comparison/difference intent: When users ask to 'compare', 'difference', 'subtract', or 'prediction vs ground truth', use calculate_layer_difference with the two layer names as layer_a and layer_b. layer_a is the minuend (e.g. prediction), layer_b is the subtrahend (e.g. ground truth). Do NOT include a set_time action unless the user explicitly asks to change the date. 'Current date' or 'for now' means use whatever time is already set on the map — just run calculate_layer_difference without changing the time.",
     "Tool usage quick reference:",
-    '  * List visible layers -> {"actions":[{"tool":"list_layers","args":{}}]}',
+    '  * List all available layers with temporal coverage (not only visible ones) -> {"actions":[{"tool":"list_layers","args":{}}]}',
     '  * Show analyzable layers -> {"actions":[{"tool":"list_analyzable_layers","args":{}}]}',
     '  * Toggle visibility -> {"actions":[{"tool":"toggle_layer","args":{"name":"Layer","visible":true}}]}',
     '  * Turn off ALL layers -> {"actions":[{"tool":"toggle_layer","args":{"name":"Layer1","visible":false}},{"tool":"toggle_layer","args":{"name":"Layer2","visible":false}},...]}',

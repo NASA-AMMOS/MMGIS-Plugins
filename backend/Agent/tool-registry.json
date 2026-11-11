@@ -370,7 +370,7 @@
       }
     },
     {
-      "description": "List all layers with their on/off state.",
+      "description": "List ALL available layers in the mission (not only visible ones), each with its on/off state and temporal coverage.",
       "execution": {
         "adapter": "custom",
         "ui": {

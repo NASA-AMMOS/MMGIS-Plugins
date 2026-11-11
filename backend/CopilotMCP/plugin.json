@@ -1,0 +1,41 @@
+{
+  "uuid": "6f1b2c84-3d0e-4b6a-9a52-0c4e7d2f9b13",
+  "id": "experimental-copilot-mcp",
+  "name": "CopilotMCP",
+  "type": "backend",
+  "version": "0.1.0",
+  "tier": "experimental",
+  "engines": { "mmgis": ">=5.0.0", "node": ">=20.0.0" },
+  "description": "Model Context Protocol (MCP) server for the MMGIS Copilot: exposes every Copilot capability as MCP tools, executing map actions in a live MMGIS browser session through the CopilotMCPBridge component. Disabled unless WITH_COPILOT_MCP=true.",
+  "descriptionFull": {
+    "title": "Streamable HTTP MCP endpoint at /api/copilot-mcp/mcp. Copilot registry tools (layers, navigation, time, highlighting, statistics, comparison, animation, export, Analysis/Animation tool integration) run in a connected browser session via the AgentChat handlers and return the verified resulting state; Copilot backend operations (planner, raster statistics/difference, layer catalog, region resolver, conversations) run on the server through the Agent plugin's API. Local connections only by default; authenticates with MMGIS sessions or long-term tokens.",
+    "example": {
+      "WITH_COPILOT_MCP": "(string) 'true' enables the plugin [default disabled]",
+      "COPILOT_MCP_ALLOW_REMOTE": "(string) 'true' accepts non-loopback connections [default false]"
+    }
+  },
+  "priority": 950,
+  "overridable": true,
+  "routes": {
+    "prefix": "/api/copilot-mcp",
+    "auth": "user"
+  },
+  "envs": {
+    "WITH_COPILOT_MCP": "(string) Set to 'true' to enable the Copilot MCP endpoint and browser bridge [default false]",
+    "COPILOT_MCP_ALLOW_REMOTE": "(string) Set to 'true' to accept non-loopback MCP/bridge connections [default false]",
+    "COPILOT_MCP_POLL_TIMEOUT_MS": "(number) Browser long-poll hold time in ms [default 25000]",
+    "COPILOT_MCP_DELIVERY_TIMEOUT_MS": "(number) Max wait for a browser session to receive and acknowledge a command in ms; unacknowledged commands are withdrawn unexecuted [default 15000]",
+    "COPILOT_MCP_RESULT_TIMEOUT_MS": "(number) Max wait for an acknowledged command's result in ms [default 120000; analysis tools use at least 180000]",
+    "COPILOT_MCP_LIVENESS_GRACE_MS": "(number) Close a browser session with no open poll, no running command and no request for this long, in ms [default 20000]",
+    "COPILOT_MCP_MAX_SESSIONS_PER_USER": "(number) Browser sessions kept per user [default 10]"
+  },
+  "dependencies": {
+    "npm": {
+      "@modelcontextprotocol/sdk": "1.32.2"
+    }
+  },
+  "pluginDependencies": ["NASA-AMMOS--MMGIS-Plugins/backend/Agent"],
+  "author": "midatm1234",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/NASA-AMMOS/MMGIS-Plugins"
+}

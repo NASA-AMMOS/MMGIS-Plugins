@@ -1,0 +1,66 @@
+{
+  "uuid": "0d7c2b1e-5a64-4f0b-8f3e-2a9c6b1d4e57",
+  "id": "experimental-copilot-mcp-bridge",
+  "name": "CopilotMCPBridge",
+  "display_name": "MMGIS MCP Bridge",
+  "type": "component",
+  "version": "0.1.0",
+  "tier": "experimental",
+  "engines": { "mmgis": ">=5.0.0" },
+  "overridable": true,
+  "defaultIcon": "lan-connect",
+  "description": "Connects a logged-in MMGIS browser session to the CopilotMCP backend so MCP clients can run the MMGIS Copilot's tools on this map.",
+  "descriptionFull": {
+    "title": "Browser half of the Copilot MCP interface. Enable it per mission (Configure → Components). It stays dormant unless the CopilotMCP backend is enabled (WITH_COPILOT_MCP=true) and the user is logged in; then it registers this page's session, executes MCP commands with the AgentChat Copilot handlers and reports the verified resulting state. A status indicator shows the connection and pauses it on click.",
+    "example": {
+      "autoConnect": "(bool) Connect automatically after login [default true]",
+      "showIndicator": "(bool) Show the MCP status indicator [default true]",
+      "mirrorToCopilotPanel": "(bool) Also write MCP command output into the Copilot chat history [default false]"
+    }
+  },
+  "hasVars": true,
+  "paths": {
+    "CopilotMCPBridge": "./CopilotMCPBridge"
+  },
+  "config": {
+    "rows": [
+      {
+        "name": "Copilot MCP Bridge",
+        "description": "Lets MCP clients of the same MMGIS user control this mission's map through the Copilot tools. Requires the CopilotMCP backend plugin with WITH_COPILOT_MCP=true.",
+        "components": [
+          {
+            "field": "variables.autoConnect",
+            "name": "Auto Connect",
+            "description": "Connect automatically after login. When off, the indicator starts paused and connects on click.",
+            "type": "checkbox",
+            "width": 4,
+            "defaultChecked": true
+          },
+          {
+            "field": "variables.showIndicator",
+            "name": "Show Indicator",
+            "description": "Show the MCP connection indicator (click to pause/resume).",
+            "type": "checkbox",
+            "width": 4,
+            "defaultChecked": true
+          },
+          {
+            "field": "variables.mirrorToCopilotPanel",
+            "name": "Mirror to Copilot Chat",
+            "description": "Also write MCP command output into the Copilot chat (it becomes part of the chat history).",
+            "type": "checkbox",
+            "width": 4,
+            "defaultChecked": false
+          }
+        ]
+      }
+    ]
+  },
+  "pluginDependencies": [
+    "NASA-AMMOS--MMGIS-Plugins/backend/CopilotMCP",
+    "NASA-AMMOS--MMGIS-Plugins/tools/AgentChat"
+  ],
+  "author": "midatm1234",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/NASA-AMMOS/MMGIS-Plugins"
+}
