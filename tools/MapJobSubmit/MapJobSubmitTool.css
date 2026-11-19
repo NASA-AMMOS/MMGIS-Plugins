@@ -1,0 +1,912 @@
+#mapJobSubmitTool {
+    color: #cfcfcf;
+    height: 100%;
+    overflow-y: auto;
+    padding: 8px 10px 24px 10px;
+    box-sizing: border-box;
+    font-family: lato-light, sans-serif;
+}
+
+#mapJobSubmitTool .mjs-header {
+    height: 40px;
+    line-height: 40px;
+    font-size: 16px;
+    color: var(--color-l);
+    background: var(--color-a);
+    font-family: lato-light;
+    text-transform: uppercase;
+    padding: 0 10px;
+    margin: -8px -10px 8px -10px;
+}
+
+#mapJobSubmitTool .mjs-section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-l);
+    margin: 12px 0 4px 0;
+}
+
+#mapJobSubmitTool select,
+#mapJobSubmitTool input[type="text"],
+#mapJobSubmitTool input[type="number"],
+#mapJobSubmitTool input[type="date"],
+#mapJobSubmitTool textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--color-k);
+    color: #fff;
+    border: 1px solid var(--color-i, #444);
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: inherit;
+}
+
+#mapJobSubmitTool .mjs-field {
+    margin-bottom: 8px;
+}
+
+#mapJobSubmitTool .mjs-field-label {
+    font-size: 11px;
+    color: #cfcfcf;
+    margin-bottom: 2px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+#mapJobSubmitTool .mjs-field-label .mjs-field-type {
+    font-size: 10px;
+    color: #888;
+    text-transform: lowercase;
+}
+
+#mapJobSubmitTool .mjs-field-description {
+    font-size: 10px;
+    color: #888;
+    margin: 2px 0 0 0;
+}
+
+#mapJobSubmitTool .mjs-field-locked {
+    margin-left: 4px;
+    padding: 0 4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-radius: 2px;
+    font-size: 9px;
+}
+
+#mapJobSubmitTool .mjs-input-readonly {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+#mapJobSubmitTool .mjs-submit {
+    width: 100%;
+    background: rgba(0, 169, 224, 0.15);
+    color: #00A9E0;
+    border: 2px solid #00A9E0;
+    padding: 10px;
+    margin-top: 12px;
+    cursor: pointer;
+    text-transform: uppercase;
+    font-size: 13px;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    transition: all 0.2s ease;
+}
+
+#mapJobSubmitTool .mjs-submit:hover:not(:disabled) {
+    background: rgba(0, 169, 224, 0.25);
+    border-color: rgba(0, 169, 224, 0.8);
+}
+
+#mapJobSubmitTool .mjs-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#mapJobSubmitTool .mjs-jobs {
+    margin-top: 16px;
+    border-top: 1px solid #333;
+    padding-top: 8px;
+}
+
+#mapJobSubmitTool .mjs-jobs-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#mapJobSubmitTool .mjs-jobs-header-btns {
+    display: flex;
+    gap: 6px;
+}
+
+#mapJobSubmitTool .mjs-jobs-filter {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--color-k);
+    color: #fff;
+    border: 1px solid #444;
+    padding: 4px 6px;
+    font-size: 11px;
+    margin: 4px 0 6px 0;
+}
+
+#mapJobSubmitTool .mjs-refresh-btn,
+#mapJobSubmitTool .mjs-import-btn {
+    background: transparent;
+    color: #cfcfcf;
+    border: 1px solid #444;
+    padding: 2px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+}
+
+#mapJobSubmitTool .mjs-refresh-btn:hover:not(:disabled),
+#mapJobSubmitTool .mjs-import-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+#mapJobSubmitTool .mjs-refresh-btn:disabled,
+#mapJobSubmitTool .mjs-import-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+#mapJobSubmitTool .mjs-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 6px;
+}
+
+#mapJobSubmitTool .mjs-pagination:empty {
+    display: none;
+}
+
+#mapJobSubmitTool .mjs-page-btn {
+    background: transparent;
+    color: #cfcfcf;
+    border: 1px solid #444;
+    padding: 2px 10px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+}
+
+#mapJobSubmitTool .mjs-page-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+#mapJobSubmitTool .mjs-page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+#mapJobSubmitTool .mjs-page-label {
+    font-size: 10px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+#mapJobSubmitTool .mjs-job {
+    border: 1px solid #333;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+#mapJobSubmitTool .mjs-job-id {
+    font-family: monospace;
+    color: #aac;
+}
+
+#mapJobSubmitTool .mjs-job-name {
+    color: #fff;
+    font-weight: bold;
+}
+
+#mapJobSubmitTool .mjs-job-id-mini {
+    font-family: monospace;
+    color: #777;
+    font-size: 9px;
+}
+
+#mapJobSubmitTool .mjs-name-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--color-k);
+    color: #fff;
+    border: 1px solid #444;
+    padding: 4px 6px;
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+#mapJobSubmitTool .mjs-name-input.mjs-input-error {
+    border-color: #ef5350;
+}
+
+#mapJobSubmitTool .mjs-name-warning {
+    display: none;
+    color: #ef5350;
+    font-size: 10px;
+    margin: -2px 0 4px 0;
+}
+
+#mapJobSubmitTool .mjs-name-warning.visible {
+    display: block;
+}
+
+#mapJobSubmitTool .mjs-exp-name-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+#mapJobSubmitTool .mjs-exp-name-input {
+    flex: 1;
+    background: var(--color-k);
+    color: #fff;
+    border: 1px solid #444;
+    padding: 4px 6px;
+    font-size: 11px;
+}
+
+#mapJobSubmitTool .mjs-exp-name-save {
+    background: transparent;
+    color: #cfcfcf;
+    border: 1px solid #444;
+    padding: 2px 10px;
+    font-size: 10px;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+#mapJobSubmitTool .mjs-exp-name-save:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+#mapJobSubmitTool .mjs-job-status {
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+}
+
+#mapJobSubmitTool .mjs-job-status.queued { color: #ccc; }
+#mapJobSubmitTool .mjs-job-status.running { color: #ffb74d; }
+#mapJobSubmitTool .mjs-job-status.completed { color: #66bb6a; }
+#mapJobSubmitTool .mjs-job-status.failed { color: #ef5350; }
+#mapJobSubmitTool .mjs-job-status.cancelled { color: #888; }
+#mapJobSubmitTool .mjs-job-status.loading { color: #888; font-style: italic; }
+
+#mapJobSubmitTool .mjs-job-stage {
+    margin-top: 4px;
+    font-size: 10px;
+    color: #ffb74d;
+}
+
+#mapJobSubmitTool .mjs-job-error {
+    margin-top: 6px;
+    padding: 4px 6px;
+    font-size: 10px;
+    color: #ef5350;
+    word-break: break-word;
+    background: rgba(239, 83, 80, 0.06);
+    border-left: 2px solid #ef5350;
+}
+
+#mapJobSubmitTool .mjs-job-header {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#mapJobSubmitTool .mjs-job-header:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+#mapJobSubmitTool .mjs-job-chevron {
+    display: inline-block;
+    width: 10px;
+    color: #888;
+    font-size: 9px;
+}
+
+#mapJobSubmitTool .mjs-job-expanded {
+    margin-top: 6px;
+    padding: 6px 8px;
+    border-left: 2px solid #444;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+#mapJobSubmitTool .mjs-exp-uuid {
+    font-family: monospace;
+    font-size: 10px;
+    color: #778;
+    word-break: break-all;
+    margin-bottom: 4px;
+}
+
+#mapJobSubmitTool .mjs-exp-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #aac;
+    margin: 6px 0 2px 0;
+}
+
+#mapJobSubmitTool .mjs-exp-label:first-child {
+    margin-top: 0;
+}
+
+#mapJobSubmitTool .mjs-exp-json {
+    margin: 0;
+    font-family: monospace;
+    font-size: 10px;
+    color: #cfcfcf;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 4px 6px;
+    border-radius: 2px;
+    max-height: 200px;
+    overflow: auto;
+}
+
+#mapJobSubmitTool .mjs-exp-hint {
+    font-size: 10px;
+    color: #888;
+}
+
+#mapJobSubmitTool .mjs-exp-stages {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+#mapJobSubmitTool .mjs-exp-stage {
+    font-size: 10px;
+    color: #cfcfcf;
+    padding: 2px 0;
+}
+
+#mapJobSubmitTool .mjs-exp-stage.current {
+    background: rgba(255, 183, 77, 0.08);
+    padding: 2px 4px;
+    border-radius: 2px;
+}
+
+#mapJobSubmitTool .mjs-exp-stage-status {
+    display: inline-block;
+    min-width: 70px;
+    font-weight: bold;
+    text-transform: uppercase;
+    font-size: 9px;
+}
+
+#mapJobSubmitTool .mjs-exp-stage.completed .mjs-exp-stage-status { color: #66bb6a; }
+#mapJobSubmitTool .mjs-exp-stage.failed .mjs-exp-stage-status { color: #ef5350; }
+#mapJobSubmitTool .mjs-exp-stage.running .mjs-exp-stage-status { color: #ffb74d; }
+#mapJobSubmitTool .mjs-exp-stage.queued .mjs-exp-stage-status { color: #ccc; }
+
+#mapJobSubmitTool .mjs-exp-stage-sub {
+    color: #888;
+    font-size: 9px;
+}
+
+#mapJobSubmitTool .mjs-exp-stage-error {
+    color: #ef5350;
+    font-size: 10px;
+    margin-left: 12px;
+    word-break: break-word;
+}
+
+#mapJobSubmitTool .mjs-job-output {
+    margin-top: 4px;
+    word-break: break-all;
+    color: #aaa;
+}
+
+#mapJobSubmitTool .mjs-params-toggle {
+    cursor: pointer;
+    user-select: none;
+    margin-top: 4px;
+    font-size: 10px;
+    color: #888;
+}
+
+#mapJobSubmitTool .mjs-params-toggle:hover {
+    color: #ccc;
+}
+
+#mapJobSubmitTool .mjs-job-params {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 8px;
+    row-gap: 2px;
+    margin-top: 4px;
+    font-size: 10px;
+}
+
+#mapJobSubmitTool .mjs-param-key {
+    color: #888;
+    font-family: monospace;
+}
+
+#mapJobSubmitTool .mjs-param-val {
+    color: #d8d8d8;
+    font-family: monospace;
+    word-break: break-all;
+    min-width: 0;
+}
+
+#mapJobSubmitTool .mjs-map-btn-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+#mapJobSubmitTool .mjs-map-btn {
+    flex: 1;
+    background: var(--color-a);
+    color: var(--color-l);
+    border: none;
+    padding: 6px;
+    cursor: pointer;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+}
+
+#mapJobSubmitTool .mjs-map-btn:hover:not(:disabled) {
+    filter: brightness(1.15);
+}
+
+#mapJobSubmitTool .mjs-map-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+#mapJobSubmitTool .mjs-map-btn.mjs-layer-remove {
+    background: transparent;
+    color: #ef5350;
+    border: 1px solid #5c3a3a;
+}
+
+#mapJobSubmitTool .mjs-map-btn.mjs-layer-remove:hover {
+    background: rgba(239, 83, 80, 0.08);
+    filter: none;
+}
+
+#mapJobSubmitTool .mjs-remove-job-btn {
+    width: 100%;
+    background: transparent;
+    color: #ef5350;
+    border: 1px solid #5c3a3a;
+    padding: 6px;
+    margin-top: 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+}
+
+#mapJobSubmitTool .mjs-remove-job-btn:hover:not(:disabled) {
+    background: rgba(239, 83, 80, 0.08);
+}
+
+#mapJobSubmitTool .mjs-remove-job-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Bbox grid layout */
+#mapJobSubmitTool .mjs-bbox-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+#mapJobSubmitTool .mjs-bbox-field {
+    display: flex;
+    flex-direction: column;
+}
+
+#mapJobSubmitTool .mjs-bbox-field label {
+    font-size: 10px;
+    color: #888;
+    margin-bottom: 2px;
+}
+
+#mapJobSubmitTool .mjs-bbox-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--color-k);
+    color: #fff;
+    border: 1px solid var(--color-i, #444);
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: inherit;
+}
+
+#mapJobSubmitTool .mjs-bbox-format-label {
+    font-size: 10px;
+    color: #888;
+    margin-top: 8px;
+    margin-bottom: 2px;
+}
+
+#mapJobSubmitTool .mjs-bbox-format-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--color-k);
+    color: #fff;
+    border: 1px solid var(--color-i, #444);
+    padding: 6px 8px;
+    font-size: 11px;
+    font-family: 'Courier New', monospace;
+    margin-bottom: 8px;
+}
+
+#mapJobSubmitTool .mjs-bbox-map-btn {
+    width: 100%;
+    background: rgba(0, 169, 224, 0.15);
+    color: #00A9E0;
+    border: 1px solid rgba(0, 169, 224, 0.4);
+    padding: 6px;
+    cursor: pointer;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    transition: all 0.2s ease;
+}
+
+#mapJobSubmitTool .mjs-bbox-map-btn:hover {
+    background: rgba(0, 169, 224, 0.25);
+    border-color: rgba(0, 169, 224, 0.6);
+}
+
+#mapJobSubmitTool .mjs-bbox-error {
+    background: rgba(239, 83, 80, 0.15);
+    color: #ef5350;
+    padding: 8px;
+    margin-top: 4px;
+    font-size: 11px;
+    border-left: 3px solid #ef5350;
+}
+
+/* Select Point on Map button for lat/lon pairs */
+#mapJobSubmitTool .mjs-select-point-btn {
+    width: 100%;
+    background: rgba(0, 169, 224, 0.15);
+    color: #00A9E0;
+    border: 1px solid rgba(0, 169, 224, 0.4);
+    padding: 4px 8px;
+    margin-top: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    transition: all 0.2s ease;
+}
+
+#mapJobSubmitTool .mjs-select-point-btn:hover {
+    background: rgba(0, 169, 224, 0.25);
+    border-color: rgba(0, 169, 224, 0.6);
+}
+
+#mapJobSubmitTool .mjs-select-point-btn.mjs-map-select-active {
+    background: rgba(255, 183, 77, 0.15);
+    color: #ffb74d;
+    border-color: rgba(255, 183, 77, 0.4);
+}
+
+/* Last refreshed timestamp */
+#mapJobSubmitTool .mjs-last-refresh {
+    font-size: 10px;
+    color: #888;
+    margin-left: 8px;
+    white-space: nowrap;
+}
+
+/* Account creation link */
+#mapJobSubmitTool .mjs-account-link {
+    margin-top: 16px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid #333;
+    border-radius: 2px;
+    font-size: 11px;
+    color: #cfcfcf;
+    line-height: 1.5;
+}
+
+#mapJobSubmitTool .mjs-account-link a {
+    color: #00A9E0;
+    text-decoration: none;
+}
+
+#mapJobSubmitTool .mjs-account-link a:hover {
+    text-decoration: underline;
+}
+
+/* Visibility control — mirrors the Layers panel's filled checkbox look
+   (#layersTool .checkbox/.checkbox.on are panel-scoped, so restated here). */
+#mapJobSubmitTool .mjs-layer-visibility {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px 0 2px;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid #444;
+    color: #cfcfcf;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+#mapJobSubmitTool .mjs-layer-visibility.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+#mapJobSubmitTool .mjs-checkbox {
+    margin: 5px;
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--color-a3);
+    border-radius: 2px;
+    transition: background 0.2s cubic-bezier(0.39, 0.575, 0.565, 1),
+        border 0.1s cubic-bezier(0.39, 0.575, 0.565, 1);
+}
+
+#mapJobSubmitTool .mjs-checkbox.on {
+    background: var(--color-a7);
+    border: 0px solid #777;
+}
+
+#mapJobSubmitTool
+    .mjs-layer-visibility:not(.disabled):hover
+    .mjs-checkbox:not(.on) {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+#mapJobSubmitTool .mjs-tile-visibility {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+#mapJobSubmitTool .mjs-tile-visibility .mjs-checkbox {
+    width: 14px;
+    height: 14px;
+    margin: 2px;
+}
+
+#mapJobSubmitTool .mjs-tile-visibility:hover .mjs-checkbox:not(.on) {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+#mapJobSubmitTool .mjs-endpoint-desc {
+    font-size: 11px;
+    color: #888;
+    margin-top: 2px;
+    margin-bottom: 6px;
+}
+
+#mapJobSubmitTool .mjs-empty {
+    color: #888;
+    font-size: 11px;
+    font-style: italic;
+}
+
+#mapJobSubmitTool #mjs-auth-banner {
+    margin-bottom: 8px;
+}
+
+#mapJobSubmitTool .mjs-auth-msg {
+    font-size: 11px;
+    color: #cfcfcf;
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 3px solid #888;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    word-break: break-all;
+}
+
+#mapJobSubmitTool .mjs-auth-ok {
+    font-size: 11px;
+    color: #66bb6a;
+    background: rgba(102, 187, 106, 0.08);
+    border-left: 3px solid #66bb6a;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    word-break: break-all;
+}
+
+#mapJobSubmitTool .mjs-signout {
+    color: #aac;
+    margin-left: 6px;
+    font-size: 10px;
+    text-decoration: underline;
+}
+
+#mapJobSubmitTool .mjs-signout:hover {
+    color: #fff;
+}
+
+/* Toggle switch for boolean inputs */
+#mapJobSubmitTool .mjs-toggle-wrapper {
+    display: inline-block;
+    position: relative;
+}
+
+#mapJobSubmitTool .mjs-toggle-input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+
+#mapJobSubmitTool .mjs-toggle-slider {
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    background: #666;
+    border-radius: 10px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+#mapJobSubmitTool .mjs-toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: white;
+    left: 3px;
+    top: 3px;
+    transition: transform 0.3s ease;
+}
+
+#mapJobSubmitTool .mjs-toggle-input:checked + .mjs-toggle-slider {
+    background: #00A9E0;
+}
+
+#mapJobSubmitTool .mjs-toggle-input:checked + .mjs-toggle-slider::before {
+    transform: translateX(16px);
+}
+
+#mapJobSubmitTool .mjs-toggle-slider:hover {
+    opacity: 0.9;
+}
+
+/* Personal Access Token Input Section */
+#mapJobSubmitTool .mjs-auth-input-section {
+    margin-bottom: 12px;
+}
+
+#mapJobSubmitTool #mjs-token-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--color-k);
+    color: #fff;
+    border: 1px solid #444;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: monospace;
+    margin: 4px 0;
+}
+
+#mapJobSubmitTool #mjs-token-input:focus {
+    border-color: var(--color-a);
+    outline: none;
+}
+
+#mapJobSubmitTool .mjs-connect-btn {
+    width: 100%;
+    background: var(--color-a);
+    color: var(--color-l);
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    margin-top: 4px;
+}
+
+#mapJobSubmitTool .mjs-connect-btn:hover:not(:disabled) {
+    filter: brightness(1.15);
+}
+
+#mapJobSubmitTool .mjs-connect-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#mapJobSubmitTool .mjs-token-display {
+    font-family: monospace;
+    font-size: 10px;
+    color: #888;
+    margin: 4px 0;
+}
+
+/* Map selection buttons */
+#mapJobSubmitTool .mjs-input-with-btn {
+    display: flex;
+    gap: 4px;
+    align-items: stretch;
+}
+
+#mapJobSubmitTool .mjs-input-with-btn input {
+    flex: 1;
+}
+
+#mapJobSubmitTool .mjs-map-select-btn {
+    background: rgba(0, 169, 224, 0.15);
+    color: #00A9E0;
+    border: 1px solid rgba(0, 169, 224, 0.4);
+    padding: 4px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+#mapJobSubmitTool .mjs-map-select-btn:hover {
+    background: rgba(0, 169, 224, 0.25);
+    border-color: rgba(0, 169, 224, 0.6);
+}
+
+#mapJobSubmitTool .mjs-map-select-btn.mjs-map-select-active {
+    background: rgba(255, 183, 77, 0.15);
+    color: #ffb74d;
+    border-color: rgba(255, 183, 77, 0.4);
+}
+
+#mapJobSubmitTool .mjs-map-select-btn.mjs-map-select-active:hover {
+    background: rgba(255, 183, 77, 0.25);
+    border-color: rgba(255, 183, 77, 0.6);
+}
+
+/* View Inputs on Map button */
+#mapJobSubmitTool .mjs-view-inputs-btn {
+    width: 100%;
+    background: rgba(0, 169, 224, 0.15);
+    color: #00A9E0;
+    border: 1px solid rgba(0, 169, 224, 0.4);
+    padding: 6px 8px;
+    margin-top: 6px;
+    cursor: pointer;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    transition: all 0.2s ease;
+}
+
+#mapJobSubmitTool .mjs-view-inputs-btn:hover {
+    background: rgba(0, 169, 224, 0.25);
+    border-color: rgba(0, 169, 224, 0.6);
+}

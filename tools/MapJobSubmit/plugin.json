@@ -1,0 +1,87 @@
+{
+    "uuid": "8f4a2b3c-5d6e-7f8g-9h0i-1j2k3l4m5n6o",
+    "id": "core-mapjobsubmit",
+    "version": "core",
+    "type": "tool",
+    "tier": "core",
+    "overridable": true,
+    "name": "MapJobSubmit",
+    "defaultIcon": "cog-sync",
+    "description": "Submit jobs to an external workflows OGC API and add their outputs as map layers. Can submit job inputs as bbox or coordinates.",
+    "descriptionFull": {
+        "title": "Submits jobs to the an OGC API and adds vector outputs as layers when jobs complete. Endpoints are hardcoded in WorkflowsTool.js but are OGC compliant. The mission's 'workflows.baseUrl' selects between mock mode (empty or 'mock://') and direct-to-API mode; in direct mode the browser talks to the API with OAuth session cookies via 'Connect'.",
+        "example": {
+            "pollIntervalMs": "(int) how often to poll job status [default 2000]"
+        }
+    },
+    "hasVars": true,
+    "toolbarPriority": 50,
+    "paths": {
+        "MapJobSubmit": "./MapJobSubmitTool"
+    },
+    "config": {
+        "rows": [
+            {
+                "components": [
+                    {
+                        "field": "variables.baseUrl",
+                        "name": "API Base URL",
+                        "description": "Origin of the OGC API. Required for the tool to function.",
+                        "type": "text",
+                        "width": 12,
+                        "placeholder": "https://workflows-api.example.com"
+                    }
+                ]
+            },
+            {
+                "components": [
+                    {
+                        "field": "variables.pollIntervalMs",
+                        "name": "Poll Interval (ms)",
+                        "description": "How often the tool polls workflow job status.",
+                        "type": "number",
+                        "min": 500,
+                        "step": 500,
+                        "width": 4
+                    }
+                ]
+            },
+            {
+                "components": [
+                    {
+                        "field": "variables.accountCreationUrl",
+                        "name": "Account Creation URL",
+                        "description": "Link displayed to unauthenticated users for account creation information.",
+                        "type": "text",
+                        "width": 12,
+                        "placeholder": "https://example.com/create-account"
+                    }
+                ]
+            },
+            {
+                "components": [
+                    {
+                        "field": "variables.memberInfoUrl",
+                        "name": "Member Information URL",
+                        "description": "Full URL to make an authenticated request to based on the user's personal access token. Must return JSON with an 'id' field that is unique across users for storing job information.",
+                        "type": "text",
+                        "width": 12,
+                        "placeholder": "https://api.example.com/members/self"
+                    }
+                ]
+            },
+            {
+                "components": [
+                    {
+                        "field": "variables.resourcesConfig",
+                        "name": "Resources/Queues Configuration",
+                        "description": "Configure how job queues are provided. Options: (1) Full URL to fetch queues from API endpoint, (2) Comma-separated list of queue names (e.g., 'queue1,queue2,queue3'), or (3) Leave empty to disable queue selection entirely.",
+                        "type": "text",
+                        "width": 12,
+                        "placeholder": "https://api.example.com/resources OR queue1,queue2,queue3"
+                    }
+                ]
+            }
+        ]
+    }
+}
