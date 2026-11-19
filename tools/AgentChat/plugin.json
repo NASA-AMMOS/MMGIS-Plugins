@@ -18,6 +18,7 @@
   "name": "AgentChat",
   "toolbarPriority": 3,
   "separatedTool": "custom",
+  "worksOnMobile": true,
   "paths": {
     "AgentChatTool": "./AgentChatTool"
   },

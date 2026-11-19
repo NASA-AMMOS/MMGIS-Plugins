@@ -535,3 +535,18 @@
         transform: rotate(360deg);
     }
 }
+
+#tools .ac-panel {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+#tools .ac-scroll {
+    min-height: 0;
+}
+
+#tools .ac-suggestions-area {
+    max-height: 30%;
+    flex-shrink: 1;
+}
