@@ -109,7 +109,7 @@ function buildPrompt(message, context = {}, toolOptions = {}) {
   const layerCatalog = formatLayerCatalog(context.layerHints);
   const layerSummaries = formatLayerSummaries(context.layerSummaries);
   const promptParts = [
-    "You are the MMGIS Copilot assisting users inside the MMGIS web app.",
+    "You are the MMGIS Assistant assisting users inside the MMGIS web app.",
     "Available tools:",
     toolDescriptions || "- (none)",
   ];

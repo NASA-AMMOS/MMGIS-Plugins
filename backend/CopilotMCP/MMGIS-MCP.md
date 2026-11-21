@@ -1,7 +1,7 @@
 # MMGIS MCP
 
 MMGIS MCP lets [Model Context Protocol](https://modelcontextprotocol.io) clients (VS Code, Claude,
-any MCP SDK client) drive an MMGIS map with the same tools the MMGIS Copilot uses: list and toggle
+any MCP SDK client) drive an MMGIS map with the same tools the MMGIS Assistant uses: list and toggle
 layers, move the time slider, zoom, run raster statistics, and more. Map actions run in a live,
 logged-in MMGIS browser tab and report the verified resulting state.
 
@@ -21,7 +21,7 @@ MCP client ──Bearer token──▶ MMGIS MCP backend (/api/copilot-mcp/mcp)
                  │ queued per browser session
                  ▼
         MMGIS MCP Bridge (component in the open mission page)
-                 └─ runs the Copilot handlers, reports before/after state
+                 └─ runs the Assistant handlers, reports before/after state
 ```
 
 | Tool kind | Needs the MMGIS MCP Bridge and an open browser tab? |
@@ -85,7 +85,7 @@ MCP client ──Bearer token──▶ MMGIS MCP backend (/api/copilot-mcp/mcp)
 5. **Open the mission in a browser** logged in as that same user. An `MCP · connected` indicator
    appears; click it to pause or resume MCP control of that page.
 
-Per-mission settings (Components tab): *Auto Connect*, *Show Indicator*, and *Mirror to Copilot
+Per-mission settings (Components tab): *Auto Connect*, *Show Indicator*, and *Mirror to Assistant
 Chat* (off by default).
 
 ## Connect a client

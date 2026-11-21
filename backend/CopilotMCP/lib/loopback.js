@@ -1,7 +1,7 @@
 // Calls MMGIS's own HTTP interfaces (the Agent plugin's /api/agent routes and
 // core endpoints) from inside the server, forwarding the MCP caller's
 // credentials so the existing authentication middleware and route handlers run
-// exactly as they do for the Copilot UI.
+// exactly as they do for the Assistant UI.
 
 const http = require("http");
 const https = require("https");

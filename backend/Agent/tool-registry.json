@@ -49,7 +49,7 @@
       }
     },
     {
-      "description": "Compute mean, standard deviation, and 25/50/75 percentiles for a layer over a named geographic region. Minor typos or paraphrased layer names are normalized automatically; the Copilot confirms the intent to calculate averages when necessary.",
+      "description": "Compute mean, standard deviation, and 25/50/75 percentiles for a layer over a named geographic region. Minor typos or paraphrased layer names are normalized automatically; the Assistant confirms the intent to calculate averages when necessary.",
       "execution": {
         "adapter": "custom",
         "ui": {

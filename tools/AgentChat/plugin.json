@@ -11,7 +11,7 @@
   "descriptionFull": {
     "title": "Chat with the MMGIS Agent to list layers, toggle visibility, adjust opacity, zoom to features, run analysis, and more — all via natural language.",
     "example": {
-      "variables.displayOnStart": "(bool) If true, the Copilot panel opens automatically on page load [default false]"
+      "variables.displayOnStart": "(bool) If true, the Assistant panel opens automatically on page load [default false]"
     }
   },
   "hasVars": true,
@@ -29,7 +29,7 @@
           {
             "field": "variables.displayOnStart",
             "name": "Display on Start",
-            "description": "Whether the Copilot panel should automatically open on page load.",
+            "description": "Whether the Assistant panel should automatically open on page load.",
             "type": "checkbox",
             "width": 3,
             "defaultChecked": false

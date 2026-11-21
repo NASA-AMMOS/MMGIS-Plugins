@@ -1,4 +1,4 @@
-// Per-tool confirmation of what a Copilot action did, computed from state
+// Per-tool confirmation of what a Assistant action did, computed from state
 // snapshots taken before and after the action, the handler's return value,
 // its output and the analytics API responses it received.
 //
@@ -55,17 +55,17 @@ function overlayCheck(tool, after, required = true) {
 function readOnly({ output }) {
     return (output || []).length
         ? done('succeeded', null, [], ['Read-only operation; no map state change expected.'])
-        : done('failed', false, [], [], { code: 'EXECUTION_FAILED', message: 'The Copilot handler produced no output.' })
+        : done('failed', false, [], [], { code: 'EXECUTION_FAILED', message: 'The Assistant handler produced no output.' })
 }
 
-// The Copilot handlers announce the tool as opened even when the mission does
+// The Assistant handlers announce the tool as opened even when the mission does
 // not include it; report that as unavailable instead of a success.
 function toolOpened(moduleName, label, after) {
     const tools = (after && after.tools) || {}
     if (Array.isArray(tools.available) && tools.available.length && !tools.available.includes(moduleName)) {
         return done('failed', false, [check('tool enabled in this mission', moduleName, tools.available, false)], [], {
             code: 'CAPABILITY_UNAVAILABLE',
-            message: `The ${label} tool is not enabled for this mission, so nothing was opened (the Copilot handler's message claims otherwise). Enable '${label}' in the mission's Tools configuration.`,
+            message: `The ${label} tool is not enabled for this mission, so nothing was opened (the Assistant handler's message claims otherwise). Enable '${label}' in the mission's Tools configuration.`,
         })
     }
     return fromChecks([check('active tool', moduleName, tools.active || null, tools.active === moduleName)])
@@ -124,7 +124,7 @@ const VERIFIERS = {
         }
         const notes = []
         if (!HIGHLIGHT_OPERATORS.includes(args.operator)) {
-            notes.push(`The Copilot highlight handler supports ${HIGHLIGHT_OPERATORS.join(' ')}; operator '${args.operator}' was executed as '${returnValue.operator}'.`)
+            notes.push(`The Assistant highlight handler supports ${HIGHLIGHT_OPERATORS.join(' ')}; operator '${args.operator}' was executed as '${returnValue.operator}'.`)
         }
         return fromChecks(
             [
@@ -153,7 +153,7 @@ const VERIFIERS = {
         }
         const notes = []
         const requested = (returnValue.previous || 0) + Number(args.delta)
-        if (!close(requested, returnValue.opacity, 0.001)) notes.push(`Opacity is clamped to [0.05, 0.4] by the Copilot handler (requested ${requested.toFixed(3)}).`)
+        if (!close(requested, returnValue.opacity, 0.001)) notes.push(`Opacity is clamped to [0.05, 0.4] by the Assistant handler (requested ${requested.toFixed(3)}).`)
         return fromChecks([check('highlight opacity', returnValue.opacity, after.highlight.opacity, close(after.highlight.opacity, returnValue.opacity, 0.001))], notes)
     },
 
@@ -184,7 +184,7 @@ const VERIFIERS = {
     detect_anomalies({ returnValue }) {
         return done('succeeded', null, [], [
             returnValue && returnValue.simulated
-                ? 'SIMULATED: the existing Copilot anomaly handler reports fixed placeholder statistics; nothing was computed from the layer data.'
+                ? 'SIMULATED: the existing Assistant anomaly handler reports fixed placeholder statistics; nothing was computed from the layer data.'
                 : 'Anomaly handler completed.',
         ])
     },
@@ -216,7 +216,7 @@ const VERIFIERS = {
     data_export({ returnValue }) {
         return fromChecks(
             [check('export prepared', 'ready', returnValue && returnValue.status, !!returnValue && returnValue.status === 'ready')],
-            ['SYNTHETIC: the existing Copilot export handler generates sample values; the file does not contain raster pixels.']
+            ['SYNTHETIC: the existing Assistant export handler generates sample values; the file does not contain raster pixels.']
         )
     },
 
@@ -236,7 +236,7 @@ const VERIFIERS = {
         if (returnValue && returnValue.found && returnValue.id) {
             const layer = layerById(after, returnValue.id)
             if (layer && layer.visible !== returnValue.visible) {
-                base.notes.push(`The Copilot handler printed 'Visible: ${returnValue.visible ? 'Yes' : 'No'}'; the layer is actually ${layer.visible ? 'visible' : 'hidden'} (see data.actual_state).`)
+                base.notes.push(`The Assistant handler printed 'Visible: ${returnValue.visible ? 'Yes' : 'No'}'; the layer is actually ${layer.visible ? 'visible' : 'hidden'} (see data.actual_state).`)
             }
         }
         return base

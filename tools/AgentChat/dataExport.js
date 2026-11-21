@@ -1,4 +1,4 @@
-// Data Export Functions for MMGIS Copilot
+// Data Export Functions for MMGIS Assistant
 // Provides data export capabilities for external analysis
 
 import { 
@@ -229,7 +229,7 @@ function exportAsNetCDF(data, layerMatch, area, includeMetadata) {
             area: area.label,
             bbox: area.bbox,
             created: new Date().toISOString(),
-            source: 'MMGIS Copilot Export'
+            source: 'MMGIS Assistant Export'
         } : {}
     }
     
@@ -262,7 +262,7 @@ function exportAsKML(data, layerMatch, area) {
 <kml xmlns="http://www.opengis.net/kml/2.2">
     <Document>
         <name>${layerMatch.displayName}</name>
-        <description>Exported from MMGIS Copilot - ${area.label}</description>
+        <description>Exported from MMGIS Assistant - ${area.label}</description>
         ${kmlPoints}
     </Document>
 </kml>`

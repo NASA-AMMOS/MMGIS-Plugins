@@ -1,17 +1,17 @@
-# CopilotMCP — Model Context Protocol interface for the MMGIS Copilot
+# CopilotMCP — Model Context Protocol interface for the MMGIS Assistant
 
-CopilotMCP exposes every capability of the MMGIS Copilot (the `Agent` backend and
+CopilotMCP exposes every capability of the MMGIS Assistant (the `Agent` backend and
 `AgentChat` tool in this repository) to [Model Context Protocol](https://modelcontextprotocol.io)
 clients such as VS Code, Claude or any MCP SDK client. It is **disabled by default**
-and does not change MMGIS, the Copilot or any other plugin unless `WITH_COPILOT_MCP=true`.
+and does not change MMGIS, the Assistant or any other plugin unless `WITH_COPILOT_MCP=true`.
 
 It consists of two plugins and two shared AgentChat modules:
 
 | Part | Path | Role |
 | ---- | ---- | ---- |
 | CopilotMCP (backend) | `backend/CopilotMCP/` | Streamable HTTP MCP server at `{ROOT_PATH}/api/copilot-mcp/mcp`, browser-session registry and bridge API. Built with the official `@modelcontextprotocol/sdk`. |
-| CopilotMCPBridge (component) | `components/CopilotMCPBridge/` | Runs in a logged-in MMGIS page of a mission. Executes MCP commands with the Copilot's own handlers and reports the verified resulting map state. |
-| Shared Copilot code | `tools/AgentChat/agentActions.js`, `tools/AgentChat/localCommands.js` | Layer resolution, conflict rules, planner context and local fast-path commands, moved verbatim out of `AgentChatTool.js` so the chat and MCP use identical code. |
+| CopilotMCPBridge (component) | `components/CopilotMCPBridge/` | Runs in a logged-in MMGIS page of a mission. Executes MCP commands with the Assistant's own handlers and reports the verified resulting map state. |
+| Shared Assistant code | `tools/AgentChat/agentActions.js`, `tools/AgentChat/localCommands.js` | Layer resolution, conflict rules, planner context and local fast-path commands, moved verbatim out of `AgentChatTool.js` so the chat and MCP use identical code. |
 
 See [COVERAGE.md](COVERAGE.md) for the capability-to-MCP coverage table and verification status.
 
@@ -30,16 +30,16 @@ MCP client ──POST /api/copilot-mcp/mcp (Bearer token)──▶ CopilotMCP ba
 
 ## How tools execute
 
-* **Copilot registry tools** (`list_layers`, `toggle_layer`, `zoom_to`, `set_time`,
+* **Assistant registry tools** (`list_layers`, `toggle_layer`, `zoom_to`, `set_time`,
   `threshold_highlight`, `calculate_layer_mean`, …, 23 in total) have the same names and
-  input schemas as the Copilot registry (`backend/Agent/tool-registry.json`) plus two
+  input schemas as the Assistant registry (`backend/Agent/tool-registry.json`) plus two
   optional routing fields, `session_id` and `mission`. Inputs are validated with the Agent
-  plugin's own compiled Ajv validators, the same `validateAction()` rules the Copilot
+  plugin's own compiled Ajv validators, the same `validateAction()` rules the Assistant
   planner uses. The validated arguments are then executed in a live browser session:
   `mmgisAPI` adapters through `window.mmgisAPI` with the chat's argument mapping and
   conflict rules, and custom adapters through the same `RENDERERS[execution.ui.type]`
   handler the chat calls.
-* **Server tools** (`copilot_*`) run the Copilot backend operations (planner, raster
+* **Server tools** (`copilot_*`) run the Assistant backend operations (planner, raster
   statistics and difference, analytics layer catalog, COG resolution, region resolver,
   layer info, conversations, registry, example queries) by calling the Agent plugin's HTTP
   API in-process, with the MCP caller's credentials. MMGIS authentication, mission
@@ -55,7 +55,7 @@ result is returned only after the page reports what the handler did:
 * `verification` lists the checks against the before/after state snapshot, for example
   the layer is visible, the map center/zoom match, the highlight expression is active, or
   a statistic equals the analytics API response.
-* `output` holds the Copilot handler's text and `data` its structured return value.
+* `output` holds the Assistant handler's text and `data` its structured return value.
 * `api_calls` lists the analytics responses used.
 * `effects` is the state diff and `state` the resulting map state.
 * `provenance` labels results the existing handlers compute in-browser, simulate or
@@ -65,14 +65,14 @@ Failures carry an `error.code`:
 
 | Code | Meaning |
 | ---- | ------- |
-| `INVALID_INPUT` | Arguments rejected by the Copilot planner's schema/validator, or a layer name the Copilot cannot resolve. |
+| `INVALID_INPUT` | Arguments rejected by the Assistant planner's schema/validator, or a layer name the Assistant cannot resolve. |
 | `NO_BROWSER_SESSION` / `AMBIGUOUS_BROWSER_SESSION` | No (or more than one) connected session matches; pass `session_id`/`mission` (see `mmgis_list_sessions`). |
 | `SESSION_NOT_FOUND` / `MISSION_MISMATCH` / `MISSION_FORBIDDEN` | Unknown or other user's session; session shows another mission; mission not viewable by the caller. |
 | `NOT_DELIVERED` | The session did not receive/acknowledge the command in time; it was withdrawn and **nothing ran**. |
 | `RESULT_TIMEOUT` / `SESSION_CLOSED` | The page received the command but reported no result / closed; the outcome is reported as unknown. |
 | `EXECUTION_FAILED` | The handler failed or the resulting state does not match the request. |
 | `CAPABILITY_UNAVAILABLE` | E.g. Agent backend not running, or a tool (Animation) not enabled in the mission. |
-| `UPSTREAM_ERROR` | The Copilot backend endpoint failed (HTTP status and details included). |
+| `UPSTREAM_ERROR` | The Assistant backend endpoint failed (HTTP status and details included). |
 
 Unknown tool names are JSON-RPC errors (`-32602`), as the MCP specification requires.
 
@@ -221,7 +221,7 @@ curl -s http://localhost:8888/api/copilot-mcp/mcp \
 Typical flow: `mmgis_list_sessions` → (optional) `mmgis_get_map_state` → registry tools with
 `session_id` (or `mission`, or nothing when exactly one session is connected) →
 `mmgis_undo_last_action`. `copilot_ask` accepts free text like the chat. `undo last` and the
-chat's local commands run without an LLM, and other requests are planned by the Copilot
+chat's local commands run without an LLM, and other requests are planned by the Assistant
 planner and executed in the session (`execute: false` returns the plan only).
 
 ## Tests
@@ -242,11 +242,11 @@ npx cross-env PLAYWRIGHT_TEST_UNIT_ONLY=true npx playwright test \
 ```
 
 Live end-to-end verification against a running MMGIS with `WITH_COPILOT_MCP=true` and the
-bridge enabled on the `frozon` mission and `Reference-Mission`. For every Copilot registry
+bridge enabled on the `frozon` mission and `Reference-Mission`. For every Assistant registry
 tool it runs the existing chat in one browser session (only the LLM planner response is
 mocked, so the chat's own `exec()` runs) and MCP in another, and compares the resulting map
 state and output. It also checks that idle sessions, another mission and another user are
-unaffected, that the server tools match the Copilot endpoints, and local commands and undo:
+unaffected, that the server tools match the Assistant endpoints, and local commands and undo:
 
 ```bash
 COPILOT_MCP_LIVE=1 PLAYWRIGHT_TEST_UNIT_ONLY=true \
@@ -261,7 +261,7 @@ a separate test server and database.)
 
 ## Limitations
 
-Pre-existing Copilot issues stay visible: MCP reports them, it does not hide them. They are
+Pre-existing Assistant issues stay visible: MCP reports them, it does not hide them. They are
 detailed in [COVERAGE.md](COVERAGE.md#pre-existing-copilot-issues-observed). In short:
 `detect_anomalies` is simulated, `data_export` is synthetic, `layer_information` cannot read
 database-only missions, the region resolver's MarineRegions endpoint is retired, and

@@ -1,5 +1,5 @@
 // CopilotMCPBridge — connects this MMGIS page to the CopilotMCP backend plugin
-// so MCP clients can run the Copilot's tools in this browser session.
+// so MCP clients can run the Assistant's tools in this browser session.
 //
 // Dormant unless the backend reports MCP enabled (WITH_COPILOT_MCP=true) and
 // the user is logged in. The session is bound to this login and mission; a

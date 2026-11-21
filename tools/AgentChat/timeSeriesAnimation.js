@@ -1,4 +1,4 @@
-// Time Series Animation Functions for MMGIS Copilot
+// Time Series Animation Functions for MMGIS Assistant
 // Provides temporal animation capabilities for visualizing changes over time
 
 import { 

@@ -1,7 +1,7 @@
-// Access to the MMGIS Copilot tool registry owned by the Agent backend plugin.
+// Access to the MMGIS Assistant tool registry owned by the Agent backend plugin.
 // When the Agent plugin is running, its live registry and compiled Ajv
 // validators (app.locals.agentToolRegistry / agentToolValidators) are used so
-// MCP input validation is identical to Copilot's validateAction(). Otherwise
+// MCP input validation is identical to Assistant's validateAction(). Otherwise
 // the registry file shipped with the Agent plugin in this container is used for
 // discovery only, and calls report the capability as unavailable.
 

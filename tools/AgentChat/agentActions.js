@@ -1,10 +1,10 @@
-/* Shared MMGIS Copilot action helpers.
+/* Shared MMGIS Assistant action helpers.
 
    Layer indexing, layer-name resolution for planned actions, display-name to
    layer-id lookup, mission conflict rules, the layer context sent to the
    planner and the local-command detectors, used by the AgentChat tool and by
    other plugins in this container (e.g. the CopilotMCPBridge component) so that
-   both execute Copilot actions with identical semantics. The logic was moved
+   both execute Assistant actions with identical semantics. The logic was moved
    verbatim from AgentChatTool.js; only closure state became parameters. This
    module has no webpack-only imports, so it can be unit tested under Node.
 */
@@ -134,7 +134,7 @@ function deriveLayerGroupPath(layerConfig) {
     return ''
 }
 
-// Index of every configured layer, as the Copilot sees it (display/canonical
+// Index of every configured layer, as the Assistant sees it (display/canonical
 // names, aliases, visibility, bbox, group path and time metadata).
 export function buildAgentLayerIndex() {
     try {
@@ -385,7 +385,7 @@ export async function applyLayerConflictRules(targetId, queryText) {
     return turnedOff
 }
 
-// Layer summaries and the layer context the Copilot sends to its planner.
+// Layer summaries and the layer context the Assistant sends to its planner.
 export function collectAgentLayers(layerIndex = []) {
     return layerIndex.map((layer) => {
         const aliases = Array.from(
@@ -438,7 +438,7 @@ export function buildAgentContextFromLayers(layers = []) {
     return { layers: hints }
 }
 
-// Commands the Copilot answers locally, without the planner: MMGIS overview,
+// Commands the Assistant answers locally, without the planner: MMGIS overview,
 // preset region zoom and time-slider changes (dispatched by localCommands.js).
 const LOCAL_REGION_VIEWS = {
     'point barrow': { lat: 71.3875, lon: -156.4797, zoom: 6 },

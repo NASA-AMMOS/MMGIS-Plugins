@@ -1,6 +1,6 @@
-# MMGIS Copilot → MCP coverage
+# MMGIS Assistant → MCP coverage
 
-This table maps every capability of the MMGIS Copilot (as implemented in this repository) to
+This table maps every capability of the MMGIS Assistant (as implemented in this repository) to
 its MCP tool or operation, with implementation and verification status. The inventory comes
 from the code: `backend/Agent/tool-registry.json`, `backend/Agent/routes/agent.js`,
 `tools/AgentChat/AgentChatTool.js`, `tools/AgentChat/renderers.js`,
@@ -16,15 +16,15 @@ failures, 1 blocked on LLM credentials) is summarized in the pull request descri
 
 | Mark | Meaning |
 | ---- | ------- |
-| **E** | **Live equivalence**: the existing Copilot chat ran the action in one browser session (only the LLM planner response was mocked, so the chat's own `exec()` ran) and MCP ran it in a second session of the same mission from the same starting state. The resulting map state (center/zoom, every layer's visibility/opacity/time window, global time, highlight overlay, analysis overlays, animation UI, active tool) and the Copilot output text were identical. The MCP result's own state verification passed where a state change is expected. |
-| **P** | **Live endpoint parity**: the MCP server tool returned exactly the JSON of the corresponding Copilot backend endpoint, called directly with a browser session. |
+| **E** | **Live equivalence**: the existing Assistant chat ran the action in one browser session (only the LLM planner response was mocked, so the chat's own `exec()` ran) and MCP ran it in a second session of the same mission from the same starting state. The resulting map state (center/zoom, every layer's visibility/opacity/time window, global time, highlight overlay, analysis overlays, animation UI, active tool) and the Assistant output text were identical. The MCP result's own state verification passed where a state change is expected. |
+| **P** | **Live endpoint parity**: the MCP server tool returned exactly the JSON of the corresponding Assistant backend endpoint, called directly with a browser session. |
 | **U** | Covered by the `@unit` suites (session protocol, MCP over HTTP with simulated bridge pages, verifiers, shared AgentChat helpers). |
-| **X** | Pre-existing Copilot limitation reproduced faithfully: the MCP result reports the same failure as the chat or endpoint. |
+| **X** | Pre-existing Assistant limitation reproduced faithfully: the MCP result reports the same failure as the chat or endpoint. |
 | **B** | Blocked in this environment by unavailable credentials or services (stated in the row). |
 
 All browser-tool results share one structure (`structuredContent`): `status`, `tool`, `mission`,
 `session_id`, `command_id`, `delivered_at`, `verification {verified, checks[], notes[]}`,
-`output[]` (Copilot handler text), `data` (handler return value), `api_calls[]` (analytics/TiTiler
+`output[]` (Assistant handler text), `data` (handler return value), `api_calls[]` (analytics/TiTiler
 responses the handler used), `effects` (state diff), `state` (resulting state, visible layers),
 `resolved_args`, `layer_matches[]`, `provenance`, `duration_ms`. Failures add
 `error {code, message, details}` and set `isError`.
@@ -32,12 +32,12 @@ Dependencies common to all browser tools: CopilotMCP enabled, a logged-in MMGIS 
 mission with the CopilotMCPBridge component and AgentChat tool, and the Agent backend
 (`WITH_AGENT=true`) for registry and validation.
 
-## A. Copilot registry tools (executed in a live browser session)
+## A. Assistant registry tools (executed in a live browser session)
 
-Inputs are the Copilot registry schema, validated with the Agent's own Ajv validators, plus
+Inputs are the Assistant registry schema, validated with the Agent's own Ajv validators, plus
 optional `session_id` and `mission` routing fields.
 
-| # | Capability | Copilot implementation (entry point) | MCP tool | Inputs (required; optional) | Tool-specific output and checks | Extra dependencies | Impl. | Verified |
+| # | Capability | Assistant implementation (entry point) | MCP tool | Inputs (required; optional) | Tool-specific output and checks | Extra dependencies | Impl. | Verified |
 | - | ---------- | ------------------------------------ | -------- | --------------------------- | ------------------------------- | ------------------ | ----- | -------- |
 | 1 | Layer discovery: list layers with on/off state | registry `list_layers` → `RENDERERS.layers_line` (`render_layers_line`, renderers.js) | `list_layers` | — | `output`: layer list with on/off | — | ✅ | E, U |
 | 2 | Layer discovery: analyzable vs visualization-only layers | `list_analyzable_layers` → `RENDERERS.list_analyzable_layers` | `list_analyzable_layers` | — | `output`: data layers (COG/STAC, units, ranges) vs visualization layers | — | ✅ | E |
@@ -58,15 +58,15 @@ optional `session_id` and `mission` routing fields.
 | 17 | Analysis: temporal trends | `temporal_trends` → `RENDERERS.temporal_trends` (COG sampling per time step) | `temporal_trends` | `layer_name`; optional `geographical_area`, `time_start/end`, `interval` | `data` series/trend; checks: results + area drawn | time-enabled COGs | ✅ | E, U |
 | 18 | Spatial analysis: Moran's I, LISA hot/cold spots | `spatial_statistics` → `RENDERERS.spatial_statistics` | `spatial_statistics` | `layer_name`; optional `geographical_area`, `grid_size`, `analysis_type`, `visualize` | `data.spatialStats`; checks: results + hotspot overlay | COGs | ✅ | E, U |
 | 19 | Comparison: change detection between two times | `change_detection` → `RENDERERS.change_detection` | `change_detection` | `layer_name`; optional `geographical_area`, `before_time`, `after_time`, `threshold`, `visualize` | `data` before/after stats, t-test; checks: results + area drawn | time-enabled COGs | ✅ | E, U |
-| 20 | Anomaly detection | `detect_anomalies` → `RENDERERS.anomaly_detection` | `detect_anomalies` | `layer_name`; optional `geographical_area`, `method`, `threshold`, `time_*`, `visualize` | `provenance` + note **SIMULATED** (fixed placeholder statistics); `verified: null` | — | ✅ | E, X (simulated in the Copilot) |
+| 20 | Anomaly detection | `detect_anomalies` → `RENDERERS.anomaly_detection` | `detect_anomalies` | `layer_name`; optional `geographical_area`, `method`, `threshold`, `time_*`, `visualize` | `provenance` + note **SIMULATED** (fixed placeholder statistics); `verified: null` | — | ✅ | E, X (simulated in the Assistant) |
 | 21 | Animation: time-series animation with controls | `time_series_animation` → `RENDERERS.time_series_animation` | `time_series_animation` | `layer_name`; optional `time_start/end`, `interval`, `frame_rate`, `loop_mode`, `auto_play` | checks: animation created, controls shown; layers it disables appear in `effects` | time-enabled layer | ✅ | E, U |
 | 22 | Export | `data_export` → `RENDERERS.data_export` | `data_export` | `layer_name`; optional `format`, `geographical_area`, `resolution`, `include_metadata`, `auto_download`, `time_range` | `data {status:'ready', …}`; `provenance` + note **SYNTHETIC** (generated values) | — | ✅ | E (output structure; values are random by design), X |
 | 23 | Integration: Animation tool (GIF/MP4 export) | `open_animation_tool` → `RENDERERS.open_animation_tool` → `ToolController_.makeTool('AnimationTool')` | `open_animation_tool` | `layer_name`; optional `start_date`, `end_date`, `region`, `format` | check: active tool = AnimationTool; `CAPABILITY_UNAVAILABLE` when the mission lacks the tool | Animation tool in the mission | ✅ | E (Reference-Mission: opens), E + X (frozon: chat claims "opened", MCP reports unavailable, same state) |
 | 24 | Integration: Analysis tool (time series/histogram/scatter) | `run_analysis` → `RENDERERS.run_analysis` → `ToolController_.makeTool('AnalysisTool')` + form prefill | `run_analysis` | `layer_name`; optional `chart_type`, `mode`, `start_date`, `end_date`, `region` | check: active tool = AnalysisTool; `CAPABILITY_UNAVAILABLE` when absent | Analysis tool in the mission | ✅ | E, U |
 
-## B. Copilot backend operations (executed on the server, no browser session)
+## B. Assistant backend operations (executed on the server, no browser session)
 
-| # | Capability | Copilot implementation | MCP tool | Inputs | Output | Dependencies | Impl. | Verified |
+| # | Capability | Assistant implementation | MCP tool | Inputs | Output | Dependencies | Impl. | Verified |
 | - | ---------- | ---------------------- | -------- | ------ | ------ | ------------ | ----- | -------- |
 | 25 | Natural-language request → plan → execution | chat `onSend` → `callAgent` → `POST /api/agent?mission=` (LLM planner, `validateAction`) → `exec()` | `copilot_ask` | `message`; optional `mission`, `session_id`, `conversation_id`, `execute` (default true) | `{handled_locally, reply, text, citations, actions[], conversation_id, executed, results[] (one browser-tool result per action)}`; `execute:false` = plan only | Agent LLM provider (Azure AI Foundry or Gemini) | ✅ | U (planner + per-action execution in the targeted session, plan-only, upstream errors); **B** live: no LLM credentials (Azure CLI token expired, `AGENT_NAME`/`AGENT_VERSION` and `GEMINI_API_KEY` unset). MCP returns `UPSTREAM_ERROR` with the Agent's message. |
 | 26 | Streaming planner | `POST /api/agent/stream` (SSE; not used by the chat UI) | covered by `copilot_ask` (same planner, non-streaming like the chat UI) | — | — | LLM | ✅ (via #25) | B |
@@ -80,9 +80,9 @@ optional `session_id` and `mission` routing fields.
 | 34 | Server raster difference | `GET /api/agent/analytics/difference` | `copilot_raster_difference` | `mission`, `layer_a`, `layer_b`; optional `time`, `bbox` | `{difference{…}}` | Python env, COGs | ✅ | P |
 | 35 | COG resolution for a layer/STAC collection | `GET /api/agent/analytics/resolve-cog` | `copilot_resolve_cog` | `mission`, `layer_name` | endpoint JSON | Agent | ✅ | P |
 
-## C. Copilot chat behaviours outside the registry
+## C. Assistant chat behaviours outside the registry
 
-| # | Capability | Copilot implementation | MCP exposure | Impl. | Verified |
+| # | Capability | Assistant implementation | MCP exposure | Impl. | Verified |
 | - | ---------- | ---------------------- | ------------ | ----- | -------- |
 | 36 | Local command: MMGIS overview | `detectMmgisOverviewIntent` / `handleMmgisOverviewIntent` (`agentActions.js`), dispatched by `tryLocalCopilotCommand` | `copilot_ask` (`handled_locally: true`, no LLM call) | ✅ | E, U |
 | 37 | Local command: preset region zoom ("zoom to point barrow", "… at zoom level N") | `detectZoomRegionIntent` / `LOCAL_REGION_VIEWS` | `copilot_ask` | ✅ | E, U |
@@ -104,12 +104,12 @@ optional `session_id` and `mission` routing fields.
 | 48 | Acknowledged delivery: commands run only after the page acknowledges them; unacknowledged ones are re-handed or withdrawn (`NOT_DELIVERED`, nothing ran); `RESULT_TIMEOUT`/`SESSION_CLOSED` report unknown outcomes | `lib/sessions.js`, `routes/bridge.js`, `CopilotMCPBridge.js` | U |
 | 49 | Isolation: other session of the same mission, other mission, other user | session ownership + secret + Express session binding | live (25 MCP calls left an idle `frozon` session and a `Reference-Mission` session unchanged; second user sees no sessions and gets `SESSION_NOT_FOUND`), U |
 | 50 | Permissions: every route declared with `s.authorize` (`site.view` / `mission.view`); signed-in callers only (401 JSON-RPC for guests and invalid tokens); mission checks with `s.can` for the caller's principal, so token scopes and missions apply, including to browser sessions (`MISSION_FORBIDDEN`); loopback-only + DNS-rebinding checks; POST-only stateless endpoint | `lib/access.js`, `lib/mount.js`, `routes/mcp.js`, `routes/bridge.js` | U (scoped-token and route-declaration tests); live before the `s.authorize` change (token and cookie clients) |
-| 51 | Disabled by default: no routes, no SDK loaded; bridge dormant | `plugin.js`, `CopilotMCPBridge.start()` | U; live baseline: the 24 MMGIS/Copilot/plugin checks give identical results without MCP, with MCP disabled and with MCP enabled (see below) |
+| 51 | Disabled by default: no routes, no SDK loaded; bridge dormant | `plugin.js`, `CopilotMCPBridge.start()` | U; live baseline: the 24 MMGIS/Assistant/plugin checks give identical results without MCP, with MCP disabled and with MCP enabled (see below) |
 | 52 | Liveness: closed tabs and proxied disconnects are detected (grace) instead of lingering | `lib/sessions.js` | U; live: a killed browser's session behind the dev-server proxy disappeared after ~50 s (poll hold + grace), and later calls get `SESSION_NOT_FOUND` |
 
-## Pre-existing Copilot issues observed
+## Pre-existing Assistant issues observed
 
-These exist in the Copilot itself. MCP reports them as they are and does not change them:
+These exist in the Assistant itself. MCP reports them as they are and does not change them:
 
 1. `detect_anomalies` returns fixed placeholder statistics (labelled **SIMULATED**).
 2. `data_export` exports generated random values, not raster pixels (labelled **SYNTHETIC**).
@@ -128,8 +128,8 @@ These exist in the Copilot itself. MCP reports them as they are and does not cha
 The same 24 checks ran three times against `frozon`: before any change, after this branch
 with `WITH_COPILOT_MCP=false`, and with `WITH_COPILOT_MCP=true`. The checks cover login, app
 load (WebGL), layer configs, vector features, tiles, navigation, layer toggle, local COG tiles
-via TiTiler, the time control, the Copilot registry/demo queries/analytics layers/raster
-statistics endpoints, the Copilot panel and suggestion chips, the Layers, Legend, Info, Draw,
+via TiTiler, the time control, the Assistant registry/demo queries/analytics layers/raster
+statistics endpoints, the Assistant panel and suggestion chips, the Layers, Legend, Info, Draw,
 Identifier and Analysis tools, and the Workflows backend.
 
 | Run | PASS | KNOWN (pre-existing) | FAIL | New errors |

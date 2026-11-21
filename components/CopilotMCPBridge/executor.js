@@ -1,4 +1,4 @@
-// Executes bridge commands in this MMGIS page with the Copilot's own code:
+// Executes bridge commands in this MMGIS page with the Assistant's own code:
 // layer-name resolution and conflict rules from AgentChat/agentActions, the
 // window.mmgisAPI adapter semantics of AgentChat's execMmgisApi, and the
 // RENDERERS handlers. Each command is confirmed by comparing state snapshots.
@@ -19,7 +19,7 @@ import { takeSnapshot } from './stateSnapshot'
 import { summarizeSnapshot, diffSnapshots } from './stateDiff'
 import { verifyCommand } from './verifiers'
 
-const UNDO_LIMIT = 25 // same cap as the Copilot chat
+const UNDO_LIMIT = 25 // same cap as the Assistant chat
 const undoStack = []
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -236,7 +236,7 @@ async function runCopilotAction(command, options) {
         } else if (spec.adapter === 'custom') {
             const handler = spec.uiType ? RENDERERS[spec.uiType] : null
             if (typeof handler !== 'function') {
-                throw codedError('CAPABILITY_UNAVAILABLE', `Copilot handler '${spec.uiType}' is not available in this MMGIS build.`)
+                throw codedError('CAPABILITY_UNAVAILABLE', `Assistant handler '${spec.uiType}' is not available in this MMGIS build.`)
             }
             undo = undoEntryFor(tool, before)
             returnValue = await handler({}, prepared.args || {})
@@ -290,7 +290,7 @@ async function runCopilotAction(command, options) {
     }
 }
 
-// Same restore semantics as the Copilot chat's undoLast().
+// Same restore semantics as the Assistant chat's undoLast().
 async function runUndo() {
     const entry = undoStack.pop()
     if (!entry) {

@@ -1,4 +1,4 @@
-// Snapshot of the MMGIS browser state that Copilot actions can change. Used
+// Snapshot of the MMGIS browser state that Assistant actions can change. Used
 // with stateDiff.js to confirm what a command actually did.
 
 import L_ from '@basics/Layers_/Layers_'

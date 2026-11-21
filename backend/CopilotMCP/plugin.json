@@ -6,9 +6,9 @@
   "version": "0.1.0",
   "tier": "experimental",
   "engines": { "mmgis": ">=5.0.0", "node": ">=20.0.0" },
-  "description": "Model Context Protocol (MCP) server for the MMGIS Copilot: exposes every Copilot capability as MCP tools, executing map actions in a live MMGIS browser session through the CopilotMCPBridge component. Disabled unless WITH_COPILOT_MCP=true.",
+  "description": "Model Context Protocol (MCP) server for the MMGIS Assistant: exposes every Assistant capability as MCP tools, executing map actions in a live MMGIS browser session through the CopilotMCPBridge component. Disabled unless WITH_COPILOT_MCP=true.",
   "descriptionFull": {
-    "title": "Streamable HTTP MCP endpoint at /api/copilot-mcp/mcp. Copilot registry tools (layers, navigation, time, highlighting, statistics, comparison, animation, export, Analysis/Animation tool integration) run in a connected browser session via the AgentChat handlers and return the verified resulting state; Copilot backend operations (planner, raster statistics/difference, layer catalog, region resolver, conversations) run on the server through the Agent plugin's API. Local connections only by default; authenticates with MMGIS sessions or long-term tokens.",
+    "title": "Streamable HTTP MCP endpoint at /api/copilot-mcp/mcp. Assistant registry tools (layers, navigation, time, highlighting, statistics, comparison, animation, export, Analysis/Animation tool integration) run in a connected browser session via the AgentChat handlers and return the verified resulting state; Assistant backend operations (planner, raster statistics/difference, layer catalog, region resolver, conversations) run on the server through the Agent plugin's API. Local connections only by default; authenticates with MMGIS sessions or long-term tokens.",
     "example": {
       "WITH_COPILOT_MCP": "(string) 'true' enables the plugin [default disabled]",
       "COPILOT_MCP_ALLOW_REMOTE": "(string) 'true' accepts non-loopback connections [default false]"

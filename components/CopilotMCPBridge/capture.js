@@ -1,9 +1,9 @@
-// Captures what a Copilot handler emits while the bridge runs it: the text it
+// Captures what a Assistant handler emits while the bridge runs it: the text it
 // writes through appendLine() (window.__mmgisAgentChatAppend) and the JSON of
 // the /api/agent/* and TiTiler info requests it makes. Both hooks are removed
 // when the command finishes.
 //
-// Output is not copied into the Copilot chat (it would become persistent chat
+// Output is not copied into the Assistant chat (it would become persistent chat
 // history) unless `mirror` is set, or the chat itself is busy executing, in
 // which case lines are also forwarded so the chat never loses its own output.
 
@@ -74,7 +74,7 @@ export function startCapture({ mirror = false } = {}) {
     }
 }
 
-// Waits (bounded) until the Copilot chat is not planning or executing, so the
+// Waits (bounded) until the Assistant chat is not planning or executing, so the
 // two never interleave on the same map.
 export async function waitForCopilotIdle(timeoutMs = 30000) {
     const deadline = Date.now() + timeoutMs
