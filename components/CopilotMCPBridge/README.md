@@ -3,7 +3,7 @@
 Browser half of the MMGIS Copilot MCP interface. When the
 [CopilotMCP backend](../../backend/CopilotMCP/README.md) is enabled (`WITH_COPILOT_MCP=true`)
 and the user is logged in, this component registers the page as a browser session for its
-mission. It then runs the MCP commands sent to that session with the AgentChat Copilot's
+mission. It then runs the MCP commands sent to that session with the AgentChat Assistant's
 own handlers, and reports the verified resulting map state.
 
 * Enable it per mission (Configure → Components → **MMGIS MCP Bridge**, the manifest's

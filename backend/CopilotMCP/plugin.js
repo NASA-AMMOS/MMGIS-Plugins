@@ -1,6 +1,6 @@
 // Copilot MCP backend plugin lifecycle. Disabled unless WITH_COPILOT_MCP=true:
 // when disabled nothing is mounted and the MCP SDK is not loaded, so the
-// Copilot, its APIs and every other plugin behave exactly as without it.
+// Assistant, its APIs and every other plugin behave exactly as without it.
 
 const { ENVS, loadConfig } = require("./lib/config");
 

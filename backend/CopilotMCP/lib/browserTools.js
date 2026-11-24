@@ -1,12 +1,12 @@
-// MCP exposure of the MMGIS Copilot registry tools. Every registry tool is
+// MCP exposure of the MMGIS Assistant registry tools. Every registry tool is
 // executed in a live MMGIS browser session by the CopilotMCPBridge component,
-// through the same AgentChat handlers the Copilot uses (window.mmgisAPI adapter
+// through the same AgentChat handlers the Assistant uses (window.mmgisAPI adapter
 // or RENDERERS[execution.ui.type]); the browser reports the handler output and
 // the verified resulting map state.
 
 const { CopilotMcpError, ERROR_CODES, toolSuccess, toolError } = require("./results");
 
-// Data provenance of each Copilot handler, from the capability inventory.
+// Data provenance of each Assistant handler, from the capability inventory.
 const PROVENANCE = Object.freeze({
   calculate_layer_mean: "server raster statistics (/api/agent/analytics/statistics, rasterio); falls back to in-browser COG sampling",
   calculate_layer_difference: "server raster difference (/api/agent/analytics/difference, rasterio)",
@@ -14,8 +14,8 @@ const PROVENANCE = Object.freeze({
   temporal_trends: "in-browser COG pixel sampling per time step (geotiff.js)",
   spatial_statistics: "in-browser COG pixel sampling (geotiff.js)",
   change_detection: "in-browser COG pixel sampling at two times (geotiff.js)",
-  detect_anomalies: "SIMULATED: the existing Copilot handler reports fixed placeholder statistics, not raster data",
-  data_export: "SYNTHETIC: the existing Copilot handler exports generated sample values, not raster data",
+  detect_anomalies: "SIMULATED: the existing Assistant handler reports fixed placeholder statistics, not raster data",
+  data_export: "SYNTHETIC: the existing Assistant handler exports generated sample values, not raster data",
   threshold_highlight: "TiTiler expression overlay on the layer's COG",
 });
 
@@ -38,10 +38,10 @@ function describeTool(spec) {
   const adapter = spec.execution && spec.execution.adapter;
   const how = adapter === "mmgisAPI"
     ? `window.mmgisAPI.${spec.execution.method}()`
-    : `the Copilot '${ui}' handler`;
+    : `the Assistant '${ui}' handler`;
   const parts = [
     spec.description || spec.name,
-    `MMGIS Copilot tool executed in a connected MMGIS browser session via ${how}; returns the handler output and the verified resulting state.`,
+    `MMGIS Assistant tool executed in a connected MMGIS browser session via ${how}; returns the handler output and the verified resulting state.`,
   ];
   if (PROVENANCE[spec.name]) parts.push(`Data: ${PROVENANCE[spec.name]}.`);
   return parts.join(" ");
@@ -49,7 +49,7 @@ function describeTool(spec) {
 
 function annotationsFor(spec) {
   return {
-    title: `Copilot: ${spec.name.replace(/_/g, " ")}`,
+    title: `Assistant: ${spec.name.replace(/_/g, " ")}`,
     readOnlyHint: READ_ONLY.has(spec.name),
     destructiveHint: false,
     idempotentHint: IDEMPOTENT.has(spec.name),
@@ -97,7 +97,7 @@ function browserResult({ tool, session, payload }) {
   if (status === "failed" || status === "no_effect") {
     const err = new CopilotMcpError(
       payload.error && payload.error.code && ERROR_CODES[payload.error.code] ? payload.error.code : ERROR_CODES.EXECUTION_FAILED,
-      (payload.error && payload.error.message) || `Copilot tool '${tool}' failed in the browser session.`,
+      (payload.error && payload.error.message) || `Assistant tool '${tool}' failed in the browser session.`,
       payload.error && payload.error.details
     );
     return toolError(err, structured);

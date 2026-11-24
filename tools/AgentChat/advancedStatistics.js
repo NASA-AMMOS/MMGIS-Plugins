@@ -1,4 +1,4 @@
-// Advanced Statistical Analysis Functions for MMGIS Copilot
+// Advanced Statistical Analysis Functions for MMGIS Assistant
 // Provides comprehensive statistical analysis beyond basic mean calculations
 
 import {

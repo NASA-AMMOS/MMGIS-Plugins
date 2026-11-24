@@ -1,5 +1,5 @@
-// The Copilot MCP tool catalog: the Copilot registry tools (executed in a live
-// browser session), the Copilot backend operations (executed on the server
+// The Copilot MCP tool catalog: the Assistant registry tools (executed in a live
+// browser session), the Assistant backend operations (executed on the server
 // through the Agent plugin's HTTP API with the caller's credentials) and the
 // browser-session tools.
 
@@ -80,7 +80,7 @@ function createCatalog(ctx) {
     if (!registry.available) {
       throw new CopilotMcpError(
         ERROR_CODES.CAPABILITY_UNAVAILABLE,
-        "The MMGIS Copilot Agent backend plugin is not running (WITH_AGENT must be 'true' and the Agent plugin enabled)."
+        "The MMGIS Assistant Agent backend plugin is not running (WITH_AGENT must be 'true' and the Agent plugin enabled)."
       );
     }
     return registry;
@@ -112,7 +112,7 @@ function createCatalog(ctx) {
   // the chat passes it to layer resolution); empty for direct tool calls.
   async function runRegistryAction(caller, registry, toolName, args, session, userQuery = "") {
     const spec = registry.tools.find((t) => t.name === toolName);
-    if (!spec) throw new CopilotMcpError(ERROR_CODES.CAPABILITY_UNAVAILABLE, `Copilot tool '${toolName}' is not in the active registry.`);
+    if (!spec) throw new CopilotMcpError(ERROR_CODES.CAPABILITY_UNAVAILABLE, `Assistant tool '${toolName}' is not in the active registry.`);
     const payload = await dispatchToBrowser(
       session,
       { kind: "copilot_action", tool: toolName, args, spec: executionSpec(spec), user_query: userQuery },
@@ -127,18 +127,18 @@ function createCatalog(ctx) {
     {
       name: "copilot_ask",
       description:
-        "Send a natural-language request to the MMGIS Copilot, exactly like the Copilot chat: 'undo last' and local fast-path commands (MMGIS overview, preset region zoom, time slider) run in the browser session, otherwise the Copilot planner (LLM) plans registry actions which are then executed in the session. execute=false returns the plan only. Requires an LLM provider configured for the Agent plugin unless a local command handles the request.",
+        "Send a natural-language request to the MMGIS Assistant, exactly like the Assistant chat: 'undo last' and local fast-path commands (MMGIS overview, preset region zoom, time slider) run in the browser session, otherwise the Assistant planner (LLM) plans registry actions which are then executed in the session. execute=false returns the plan only. Requires an LLM provider configured for the Agent plugin unless a local command handles the request.",
       inputSchema: obj(
         {
-          message: { type: "string", minLength: 1, maxLength: 2000, description: "The request, as typed into the Copilot chat." },
+          message: { type: "string", minLength: 1, maxLength: 2000, description: "The request, as typed into the Assistant chat." },
           mission: missionOptional,
           session_id: ROUTING_PROPERTIES.session_id,
-          conversation_id: { type: "string", maxLength: 64, description: "Continue an existing Copilot conversation." },
+          conversation_id: { type: "string", maxLength: 64, description: "Continue an existing Assistant conversation." },
           execute: { type: "boolean", default: true, description: "Execute in the browser session (default true). false = plan only." },
         },
         ["message"]
       ),
-      annotations: { title: "Ask the MMGIS Copilot", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: { title: "Ask the MMGIS Assistant", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       handler: async (args, caller) => {
         const routing = { mission: args.mission || null, sessionId: args.session_id || null };
         const session = await resolveSession(caller, routing, { required: args.execute || !!routing.sessionId });
@@ -164,7 +164,7 @@ function createCatalog(ctx) {
                 effects: local.effects || null,
                 state: local.state || null,
               },
-              "Handled by the Copilot's local command path (no LLM call)."
+              "Handled by the Assistant's local command path (no LLM call)."
             );
           }
         }
@@ -178,7 +178,7 @@ function createCatalog(ctx) {
           body: { message: args.message, context, conversationId: args.conversation_id || undefined },
         });
         if (!res.ok || !res.json || res.json.status === "failure") {
-          const err = upstreamError("Copilot planner", res);
+          const err = upstreamError("Assistant planner", res);
           if (res.status >= 500) err.message += " (check the Agent plugin's LLM provider configuration: PROJECT_ENDPOINT/AGENT_NAME/AGENT_VERSION or GEMINI_API_KEY)";
           throw err;
         }
@@ -210,18 +210,18 @@ function createCatalog(ctx) {
             executed: !!args.execute,
             results,
           },
-          `Copilot planned ${(plan.actions || []).length} action(s)${args.execute ? `; executed ${results.length}, failed ${failed}` : " (not executed)"}.`
+          `Assistant planned ${(plan.actions || []).length} action(s)${args.execute ? `; executed ${results.length}, failed ${failed}` : " (not executed)"}.`
         );
       },
     },
     {
       name: "copilot_tool_registry",
-      description: "List the MMGIS Copilot tool registry served by the Agent backend (GET /api/agent/tools): tool names, descriptions, execution adapters and parameter schemas.",
+      description: "List the MMGIS Assistant tool registry served by the Agent backend (GET /api/agent/tools): tool names, descriptions, execution adapters and parameter schemas.",
       inputSchema: obj({}),
-      annotations: { title: "Copilot tool registry", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { title: "Assistant tool registry", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: async (_args, caller) => {
         requireCopilotBackend();
-        const body = await agentGet(caller, "/api/agent/tools", "Copilot tool registry");
+        const body = await agentGet(caller, "/api/agent/tools", "Assistant tool registry");
         const tools = (body.tools || []).map((t) => ({
           name: t.name,
           description: t.description,
@@ -229,23 +229,23 @@ function createCatalog(ctx) {
           ui_type: t.execution && t.execution.ui && t.execution.ui.type,
           parameters: t.parameters,
         }));
-        return toolSuccess({ status: "succeeded", count: tools.length, tools }, `${tools.length} Copilot tools registered.`);
+        return toolSuccess({ status: "succeeded", count: tools.length, tools }, `${tools.length} Assistant tools registered.`);
       },
     },
     {
       name: "copilot_demo_queries",
-      description: "Return the Copilot's configured example (demo) queries (GET /api/agent/copilot/demo-queries).",
+      description: "Return the Assistant's configured example (demo) queries (GET /api/agent/copilot/demo-queries).",
       inputSchema: obj({}),
-      annotations: { title: "Copilot example queries", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { title: "Assistant example queries", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: async (_args, caller) => {
         requireCopilotBackend();
-        const body = await agentGet(caller, "/api/agent/copilot/demo-queries", "Copilot demo queries");
+        const body = await agentGet(caller, "/api/agent/copilot/demo-queries", "Assistant demo queries");
         return toolSuccess({ status: "succeeded", queries: body.queries || [] });
       },
     },
     {
       name: "copilot_conversations",
-      description: "List, read or delete persisted Copilot conversations (GET/DELETE /api/agent/conversations). list needs mission; get/delete need conversation_id and are limited to missions the caller may view.",
+      description: "List, read or delete persisted Assistant conversations (GET/DELETE /api/agent/conversations). list needs mission; get/delete need conversation_id and are limited to missions the caller may view.",
       inputSchema: obj(
         {
           action: { type: "string", enum: ["list", "get", "delete"] },
@@ -254,40 +254,40 @@ function createCatalog(ctx) {
         },
         ["action"]
       ),
-      annotations: { title: "Copilot conversations", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      annotations: { title: "Assistant conversations", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       handler: async (args, caller) => {
         requireCopilotBackend();
         if (args.action === "list") {
           if (!args.mission) throw new CopilotMcpError(ERROR_CODES.INVALID_INPUT, "mission is required for action 'list'.");
           await missionAccess.assertCanView(caller, args.mission);
-          const body = await agentGet(caller, `/api/agent/conversations${buildQuery({ mission: args.mission })}`, "Copilot conversations");
+          const body = await agentGet(caller, `/api/agent/conversations${buildQuery({ mission: args.mission })}`, "Assistant conversations");
           return toolSuccess({ status: "succeeded", mission: args.mission, conversations: body.conversations || [] });
         }
         if (!args.conversation_id) throw new CopilotMcpError(ERROR_CODES.INVALID_INPUT, `conversation_id is required for action '${args.action}'.`);
         const id = encodeURIComponent(args.conversation_id);
-        const conversation = await agentGet(caller, `/api/agent/conversations/${id}`, "Copilot conversation");
+        const conversation = await agentGet(caller, `/api/agent/conversations/${id}`, "Assistant conversation");
         await missionAccess.assertCanView(caller, conversation.missionName);
         if (args.action === "get") return toolSuccess({ status: "succeeded", conversation });
         const res = await loopback.request("DELETE", `/api/agent/conversations/${id}`, { caller });
-        if (!res.ok || !res.json) throw upstreamError("Delete Copilot conversation", res);
+        if (!res.ok || !res.json) throw upstreamError("Delete Assistant conversation", res);
         return toolSuccess({ status: "succeeded", deleted: !!res.json.deleted, conversation_id: args.conversation_id });
       },
     },
     {
       name: "copilot_layer_info",
-      description: "Layer reference information from the Copilot backend (GET /api/agent/layer-info): summaries and citations for a mission's layers, optionally best match for name. Note: the Agent reads Missions/<mission>/config.json and reports LayerInfoUnavailable for database-only missions.",
+      description: "Layer reference information from the Assistant backend (GET /api/agent/layer-info): summaries and citations for a mission's layers, optionally best match for name. Note: the Agent reads Missions/<mission>/config.json and reports LayerInfoUnavailable for database-only missions.",
       inputSchema: obj({ mission, name: { type: "string", minLength: 1, maxLength: 256 } }, ["mission"]),
-      annotations: { title: "Copilot layer info", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { title: "Assistant layer info", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: async (args, caller) => {
         requireCopilotBackend();
         await missionAccess.assertCanView(caller, args.mission);
-        const body = await agentGet(caller, `/api/agent/layer-info${buildQuery({ mission: args.mission, name: args.name })}`, "Copilot layer info");
+        const body = await agentGet(caller, `/api/agent/layer-info${buildQuery({ mission: args.mission, name: args.name })}`, "Assistant layer info");
         return toolSuccess({ status: "succeeded", mission: args.mission, ...body });
       },
     },
     {
       name: "copilot_resolve_region",
-      description: "Resolve a geographic place or sea name to a bounding box with the Copilot's region resolver (GET /api/agent/regions/resolve; uses MarineRegions.org and built-in regions).",
+      description: "Resolve a geographic place or sea name to a bounding box with the Assistant's region resolver (GET /api/agent/regions/resolve; uses MarineRegions.org and built-in regions).",
       inputSchema: obj(
         {
           name: { type: "string", minLength: 1, maxLength: 256 },
@@ -304,7 +304,7 @@ function createCatalog(ctx) {
     },
     {
       name: "copilot_analytics_layers",
-      description: "List a mission's layers as the Copilot analytics backend sees them (GET /api/agent/analytics/layers): names, aliases and data sources.",
+      description: "List a mission's layers as the Assistant analytics backend sees them (GET /api/agent/analytics/layers): names, aliases and data sources.",
       inputSchema: obj({ mission }, ["mission"]),
       annotations: { title: "Analytics layer catalog", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: async (args, caller) => {
@@ -316,7 +316,7 @@ function createCatalog(ctx) {
     },
     {
       name: "copilot_raster_statistics",
-      description: "Compute raster statistics (mean, std, min, max, quartiles, valid/nodata counts) for a mission layer's local COG/GeoTIFF on the server, via the Copilot analytics endpoint (GET /api/agent/analytics/statistics, rasterio). Optional bbox or region name. No browser session needed.",
+      description: "Compute raster statistics (mean, std, min, max, quartiles, valid/nodata counts) for a mission layer's local COG/GeoTIFF on the server, via the Assistant analytics endpoint (GET /api/agent/analytics/statistics, rasterio). Optional bbox or region name. No browser session needed.",
       inputSchema: obj(
         {
           mission,
@@ -344,7 +344,7 @@ function createCatalog(ctx) {
     },
     {
       name: "copilot_raster_difference",
-      description: "Compute pixel-by-pixel difference statistics (layer_a minus layer_b) for two mission rasters on the server via the Copilot analytics endpoint (GET /api/agent/analytics/difference). Optional time and bbox. No browser session needed.",
+      description: "Compute pixel-by-pixel difference statistics (layer_a minus layer_b) for two mission rasters on the server via the Assistant analytics endpoint (GET /api/agent/analytics/difference). Optional time and bbox. No browser session needed.",
       inputSchema: obj(
         {
           mission,
@@ -398,7 +398,7 @@ function createCatalog(ctx) {
     },
     {
       name: "mmgis_get_map_state",
-      description: "Read the current state of an MMGIS browser session: mission, map center/zoom/bounds, every layer's visibility/opacity/time window, the global time window, Copilot highlight overlays and active tools.",
+      description: "Read the current state of an MMGIS browser session: mission, map center/zoom/bounds, every layer's visibility/opacity/time window, the global time window, Assistant highlight overlays and active tools.",
       inputSchema: obj({ mission: missionOptional, session_id: ROUTING_PROPERTIES.session_id }),
       annotations: { title: "Get map state", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: async (args, caller) => {
@@ -409,7 +409,7 @@ function createCatalog(ctx) {
     },
     {
       name: "mmgis_undo_last_action",
-      description: "Undo the last layer visibility toggle or map zoom made through MCP in a browser session (same semantics as the Copilot chat's 'undo last': up to 25 entries, toggles and zoom_to only), and confirm the restored state.",
+      description: "Undo the last layer visibility toggle or map zoom made through MCP in a browser session (same semantics as the Assistant chat's 'undo last': up to 25 entries, toggles and zoom_to only), and confirm the restored state.",
       inputSchema: obj({ mission: missionOptional, session_id: ROUTING_PROPERTIES.session_id }),
       annotations: { title: "Undo last action", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       handler: async (args, caller) => {
@@ -454,7 +454,7 @@ function createCatalog(ctx) {
       const { routing, toolArgs } = splitRouting(args);
       const checked = validateRegistryArgs(registry, name, toolArgs);
       if (!checked.valid) {
-        throw new CopilotMcpError(ERROR_CODES.INVALID_INPUT, `${name} args invalid (same validation as the Copilot planner).`, { errors: checked.errors });
+        throw new CopilotMcpError(ERROR_CODES.INVALID_INPUT, `${name} args invalid (same validation as the Assistant planner).`, { errors: checked.errors });
       }
       const session = await resolveSession(caller, routing);
       return await runRegistryAction(caller, registry, name, checked.args, session);

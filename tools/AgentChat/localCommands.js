@@ -1,4 +1,4 @@
-/* Local fast-path commands of the MMGIS Copilot (no planner call): MMGIS
+/* Local fast-path commands of the MMGIS Assistant (no planner call): MMGIS
    overview, preset region zoom and time-slider changes. Shared by the
    AgentChat tool and the CopilotMCPBridge component. */
 

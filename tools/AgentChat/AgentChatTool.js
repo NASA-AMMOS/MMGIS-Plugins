@@ -1,4 +1,4 @@
-/* MMGIS Copilot - Floating Chat Tool (plain HTML)
+/* MMGIS Assistant - Floating Chat Tool (plain HTML)
    - Resizable, draggable, closable overlay that never blocks MMGIS UI.
    - No external UI libraries or asset loading.
    - Citations and trace use <details> only.
@@ -346,7 +346,7 @@ function interfaceWithMMGIS() {
           <div class="ac-header-left">
             <div class="ac-avatar"><i class="mdi mdi-robot-outline mdi-18px"></i></div>
             <div class="ac-title-wrap">
-              <div id="agentchat-title" class="ac-title">MMGIS Copilot</div>
+              <div id="agentchat-title" class="ac-title">MMGIS Assistant</div>
               <div class="ac-subtitle">Ask questions, control layers, explore docs.</div>
             </div>
           </div>
@@ -384,7 +384,7 @@ function interfaceWithMMGIS() {
 
         <div class="ac-composer">
           <form id="agentChatComposer" class="ac-composer-row">
-            <input id="agentChatInput" type="text" autocomplete="off" placeholder="Ask the Copilot" class="ac-input" />
+            <input id="agentChatInput" type="text" autocomplete="off" placeholder="Ask the Assistant" class="ac-input" />
             <button id="agentChatSend" type="submit" class="ac-btn-primary">Send</button>
           </form>
         </div>
@@ -640,7 +640,7 @@ function interfaceWithMMGIS() {
             }
         } catch (err) {
             console.error('AgentChat request failed', err)
-            pushSystem('Copilot request failed. Please try again.')
+            pushSystem('Assistant request failed. Please try again.')
         } finally {
             endThinking(requestId)
             state.sendBtn?.removeAttribute('data-loading')
@@ -720,7 +720,7 @@ function interfaceWithMMGIS() {
             const messageText =
                 err && err.message ? err.message : 'Unknown error'
             pushSystem(
-                'Error contacting the copilot service. Check your network or server logs.'
+                'Error contacting the assistant service. Check your network or server logs.'
             )
             return {
                 text: 'Agent is unavailable.',
@@ -784,7 +784,7 @@ function interfaceWithMMGIS() {
         return `
       <section class="ac-welcome" aria-live="polite">
         <p class="ac-welcome-text">
-          Ask the Copilot about MMGIS, list layers, toggle data, or explore documentation.
+          Ask the Assistant about MMGIS, list layers, toggle data, or explore documentation.
         </p>
       </section>
     `
@@ -803,7 +803,7 @@ function interfaceWithMMGIS() {
         const t = stamp(entry.timestamp)
         const isA = entry.role === 'assistant'
         const isU = entry.role === 'user'
-        const roleLabel = isA ? 'Copilot' : isU ? 'You' : 'System'
+        const roleLabel = isA ? 'Assistant' : isU ? 'You' : 'System'
         const bubbleClass = isA
             ? 'ac-bubble-a'
             : isU
@@ -1913,7 +1913,7 @@ function interfaceWithMMGIS() {
 
     function applyInputPlaceholder(text) {
         if (!state.inputEl) return
-        const formatted = text ? `Ask: "${text}"` : 'Ask the Copilot'
+        const formatted = text ? `Ask: "${text}"` : 'Ask the Assistant'
         state.inputEl.setAttribute('placeholder', formatted)
     }
 
@@ -2022,8 +2022,8 @@ function ensureTopbarLauncher(retry = 0) {
         button.id = TOPBAR_LAUNCHER_ID
         button.type = 'button'
         button.className = 'mmgis-copilot-button mdi mdi-robot-outline'
-        button.setAttribute('aria-label', 'Open MMGIS Copilot')
-        button.setAttribute('title', 'Open MMGIS Copilot')
+        button.setAttribute('aria-label', 'Open MMGIS Assistant')
+        button.setAttribute('title', 'Open MMGIS Assistant')
         button.addEventListener('click', (evt) => {
             evt.preventDefault()
             evt.stopPropagation()
@@ -2035,7 +2035,7 @@ function ensureTopbarLauncher(retry = 0) {
     if (!wrapper.querySelector('.mmgis-copilot-label')) {
         const label = document.createElement('span')
         label.className = 'mmgis-copilot-label'
-        label.textContent = 'Copilot'
+        label.textContent = 'Assistant'
         wrapper.appendChild(label)
     }
 }
